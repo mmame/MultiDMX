@@ -2,38 +2,42 @@
 #include <esp_dmx.h>
 #include <ESP32Servo.h>
 #include <TMCStepper.h>
+#include <Wire.h>
 
 // ✅ DMX RS-485 Pins
 #define PIN_RS485_TX   17
 #define PIN_RS485_RX   16
-#define PIN_RS485_EN   21  // Connected to both DE & RE
+#define PIN_RS485_EN   21 
 
 // ✅ DIP Switch (74HC165) Pins
-#define PIN_DIP_CLK    22  // Clock (SHCP)
-#define PIN_DIP_LATCH  25  // Latch (STCP)
-#define PIN_DIP_DATA   34  // Serial Data Output (QH)
+#define PIN_DIP_CLK    22 
+#define PIN_DIP_LATCH  25 
+#define PIN_DIP_DATA   34  // Input Only
 
 // ✅ Stepper Control Pins
-#define PIN_TMC2209_UART  14  // TX & RX connected (Half-Duplex)
-#define PIN_TMC2209_EN    15  // Enable (LOW to enable driver)
-#define PIN_TMC2209_INDEX 32  // Step pulse counter input
-#define TMC2209_CURRENT   600  // Motor current in mA
-#define STEPPER_SCALE     100  // Position scaling factor
-#define STALL_THRESHOLD   5    // Stall detection sensitivity (-64 to 63)
+#define PIN_TMC2209_UART  14
+#define PIN_TMC2209_EN    15
+#define PIN_TMC2209_INDEX 32 
 
-// ✅ Motor Control Pins (H-Bridge)
+// ✅ H-Bridge Motor Pins
 #define PIN_MOTOR_A_1  4
 #define PIN_MOTOR_A_2  5
 #define PIN_MOTOR_B_1  18
 #define PIN_MOTOR_B_2  19
 
-// ✅ Servo Control Pins 
-#define PIN_SERVO_1    23  // Servo 1 PWM pin
-#define PIN_SERVO_2    13  // Servo 2 PWM pin
+// ✅ Servo Control Pins
+#define PIN_SERVO_1    23
+#define PIN_SERVO_2    13
 
 // ✅ Relay Control Pins
 #define PIN_RELAY_1    27
 #define PIN_RELAY_2    26
+
+// ✅ I2C Display Pins
+#define PIN_I2C_SDA    33  
+#define PIN_I2C_SCL    35  
+
+#define PIN_BUTTON     36 
 
 // ✅ Centralized DMX Base Addresses
 #define DMX_MOTOR       (baseDMX + 1)
@@ -44,6 +48,10 @@
 #define DMX_RELAY_1     (baseDMX + 6)
 #define DMX_RELAY_2     (baseDMX + 7)
 
+#define TMC2209_CURRENT   600  // Motor current in mA
+#define STEPPER_SCALE     100  // Position scaling factor
+#define STALL_THRESHOLD   5    // Stall detection sensitivity (-64 to 63)
+
 // ✅ Global Variables
 volatile int32_t stepperPosition = 0;  // Hardware-tracked step count
 dmx_port_t dmxPort = 1;
@@ -52,6 +60,7 @@ bool dmxIsConnected = false;
 unsigned long lastUpdate = millis();
 bool homingActive = false;  // Flag to track homing state
 uint16_t baseDMX = 1;  // Base DMX Address
+bool buttonPressed = false;
 
 // Servo objects
 Servo servo1, servo2;
@@ -106,6 +115,7 @@ void setup() {
     digitalWrite(PIN_MOTOR_A_2, LOW);
     digitalWrite(PIN_MOTOR_B_1, LOW);
     digitalWrite(PIN_MOTOR_B_2, LOW);
+    pinMode(PIN_BUTTON, INPUT_PULLUP); 
 
     // --- Read DIP Switch ---
     baseDMX = readDIPSwitch();
@@ -202,4 +212,11 @@ void loop() {
             controlStepper();
         }
     }
+
+    if (digitalRead(PIN_BUTTON) == LOW && !buttonPressed) {
+        Serial.println("Button Pressed!");
+        buttonPressed = true;
+    } else if (digitalRead(PIN_BUTTON) == HIGH && buttonPressed) {
+        buttonPressed = false;
+    }    
 }
