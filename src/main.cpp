@@ -9,8 +9,8 @@
 #define PIN_RS485_EN   21  // Connected to both DE & RE
 
 // ✅ DIP Switch (74HC165) Pins
-#define PIN_DIP_CLK    18  // Clock (SHCP)
-#define PIN_DIP_LATCH  5   // Latch (STCP)
+//#define PIN_DIP_CLK    18  // Clock (SHCP)
+//#define PIN_DIP_LATCH  5   // Latch (STCP)
 #define PIN_DIP_DATA   34  // Serial Data Output (QH)
 
 // ✅ Stepper Control Pins
@@ -28,8 +28,8 @@
 #define PIN_MOTOR_B_2  19
 
 // ✅ Servo Control Pins
-#define PIN_SERVO_1    2  // Servo 1 PWM pin
-#define PIN_SERVO_2    4  // Servo 2 PWM pin
+#define PIN_SERVO_1    23  // Servo 1 PWM pin
+//#define PIN_SERVO_2    4  // Servo 2 PWM pin
 
 // ✅ Relay Control Pins
 #define PIN_RELAY_1    27
@@ -72,7 +72,7 @@ void IRAM_ATTR countSteps() {
 // ✅ Read DIP Switch (74HC165) to Determine Base DMX Address
 uint16_t readDIPSwitch() {
     uint16_t value = 0;
-    digitalWrite(PIN_DIP_LATCH, LOW);
+    /*digitalWrite(PIN_DIP_LATCH, LOW);
     delayMicroseconds(5);
     digitalWrite(PIN_DIP_LATCH, HIGH);
 
@@ -81,7 +81,7 @@ uint16_t readDIPSwitch() {
         digitalWrite(PIN_DIP_CLK, HIGH);
         delayMicroseconds(5);
         digitalWrite(PIN_DIP_CLK, LOW);
-    }
+    }*/
 
     return value & 0x01FF;  // Extract lower 9 bits (DMX Address)
 }
@@ -91,11 +91,22 @@ void setup() {
     Serial.println("Setup...");
 
     // --- Configure DIP Switch Pins ---
-    pinMode(PIN_DIP_CLK, OUTPUT);
-    pinMode(PIN_DIP_LATCH, OUTPUT);
+    //pinMode(PIN_DIP_CLK, OUTPUT);
+    //pinMode(PIN_DIP_LATCH, OUTPUT);
     pinMode(PIN_DIP_DATA, INPUT);
-    digitalWrite(PIN_DIP_CLK, LOW);
-    digitalWrite(PIN_DIP_LATCH, HIGH);
+    //digitalWrite(PIN_DIP_CLK, LOW);
+    //digitalWrite(PIN_DIP_LATCH, HIGH);
+
+
+    pinMode(PIN_MOTOR_A_1, OUTPUT);
+    pinMode(PIN_MOTOR_A_2, OUTPUT);
+    pinMode(PIN_MOTOR_B_1, OUTPUT);
+    pinMode(PIN_MOTOR_B_2, OUTPUT);
+    digitalWrite(PIN_MOTOR_A_1, LOW);
+    digitalWrite(PIN_MOTOR_A_2, LOW);
+    digitalWrite(PIN_MOTOR_B_1, LOW);
+    digitalWrite(PIN_MOTOR_B_2, LOW);
+
 
     // --- Read DIP Switch ---
     baseDMX = readDIPSwitch();
@@ -128,9 +139,9 @@ void setup() {
 
     // --- Initialize Servos ---
     servo1.attach(PIN_SERVO_1);
-    servo2.attach(PIN_SERVO_2);
+    //servo2.attach(PIN_SERVO_2);
     servo1.write(90);
-    servo2.write(90);
+    //servo2.write(90);
 
     // --- Initialize Relays ---
     pinMode(PIN_RELAY_1, OUTPUT);
@@ -187,12 +198,12 @@ void loop() {
     if (dmx_receive(dmxPort, &packet, DMX_TIMEOUT_TICK)) {
         if (!packet.err) {
             dmx_read(dmxPort, data, packet.size);
-            controlMotor();
-            digitalWrite(PIN_RELAY_1, data[DMX_RELAY_1] > 127);
-            digitalWrite(PIN_RELAY_2, data[DMX_RELAY_2] > 127);
+            //controlMotor();
+            //digitalWrite(PIN_RELAY_1, data[DMX_RELAY_1] > 127);
+            //digitalWrite(PIN_RELAY_2, data[DMX_RELAY_2] > 127);
             servo1.write(map(data[DMX_SERVO_1], 0, 255, 0, 180));
             servo2.write(map(data[DMX_SERVO_2], 0, 255, 0, 180));
-            controlStepper();
+            //controlStepper();
         }
     }
 }
