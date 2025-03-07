@@ -3,8 +3,9 @@
 #include <ESP32Servo.h>
 #include <AccelStepper.h>
 #include <TMCStepper.h>
-
+#include "display.h"
 #include <Wire.h>
+#include "webpage.h"
 
 // ✅ DMX RS-485 Pins
 #define PIN_RS485_TX   17
@@ -41,8 +42,6 @@
 #define PIN_I2C_SDA    33  
 #define PIN_I2C_SCL    35  
 
-#define PIN_BUTTON     36 
-
 // ✅ Centralized DMX Base Addresses
 #define DMX_SERVO_1             (baseDMX + 1)
 #define DMX_SERVO_2             (baseDMX + 2)
@@ -54,12 +53,32 @@
 #define DMX_STEPPER_POSITION    (baseDMX + 8)
 #define DMX_RELAY_1             (baseDMX + 9)
 #define DMX_RELAY_2             (baseDMX + 10)
+#define DMX_LAST                DMX_RELAY_2
 
-#define TMC2209_CURRENT   600  // Motor current in mA
-#define STEPPER_SCALE     100  // Position scaling factor
-#define STALL_THRESHOLD   5    // Stall detection sensitivity (-64 to 63)
-#define STEPPER_MAX_SPEED 2000 // Max speed in steps/sec
-#define STEPPER_ACCEL     500  // Acceleration (steps/sec^2)
+#define BUTTON_DEBOUNCE_DELAY_MS 100
+
+#define DEFAULT_STEPPER_TMC2209_CURRENT   600  // Motor current in mA
+#define DEFAULT_STEPPER_SCALE     100  // Position scaling factor
+#define DEFAULT_STEPPER_STALL_THRESHOLD   5    // Stall detection sensitivity (-64 to 63)
+#define DEFAULT_STEPPER_MAX_SPEED 2000 // Max speed in steps/sec
+#define DEFAULT_STEPPER_HOMING_SPEED 1000 // Homing speed in steps/sec
+#define DEFAULT_STEPPER_ACCEL     500  // Acceleration (steps/sec^2)
+#define DEFAULT_STEPPER_HOMING_TIMEOUT_MS 5000  // 5 seconds timeout
+#define DEFAULT_STEPPER_HOMING_STEP_LIMIT 50000 // Max steps before giving up
+
+#define DEFAULT_SERVO_MICROS_MIN  500
+#define DEFAULT_SERVO_MICROS_MAX  2500
+
+// Stepper direction (true = reversed, false = normal)
+const bool STEPPER_REVERSED = false;
+
+// Individual servo direction settings
+const bool SERVO_1_REVERSED = false;
+const bool SERVO_2_REVERSED = false;
+const bool SERVO_3_REVERSED = false;
+const bool SERVO_4_REVERSED = false;
+
+Display oledDisplay(PIN_I2C_SDA, PIN_I2C_SCL);
 
 // ✅ Global Variables
 volatile int32_t stepperPosition = 0;  // Hardware-tracked step count
@@ -68,10 +87,8 @@ byte data[DMX_PACKET_SIZE];
 bool dmxIsConnected = false;
 unsigned long lastUpdate = millis();
 uint16_t baseDMX = 1;  // Base DMX Address
-bool buttonPressed = false;
-
-#define DEFAULT_SERVO_MICROS_MIN  500
-#define DEFAULT_SERVO_MICROS_MAX  2500
+volatile bool buttonPressed = false;  // Updated globally in readDIPSwitch()
+unsigned long lastButtonPressTime = 0;  // Track last state change
 
 const int Servo1MinMicros = DEFAULT_SERVO_MICROS_MIN;
 const int Servo1MaxMicros = DEFAULT_SERVO_MICROS_MAX;
@@ -97,36 +114,66 @@ HardwareSerial tmc2209Serial(2);
 TMC2209Stepper tmc2209(&tmc2209Serial, 0.11f, 0);
 int32_t stepperTargetPosition = 0;  // Target position
 bool homingActive = false; 
+unsigned long homingStartTime = 0;
+bool homingFailed = false;
+char macSuffix[5];  // 4 chars + null terminator
+WebConfig webConfig;
 
-// Interrupt Service Routine (ISR) for counting steps
-void IRAM_ATTR countSteps() {
-    if (tmc2209.VACTUAL() > 0) {
-        stepperPosition++;
-    } else {
-        stepperPosition--;
-    }
-}
-
-// ✅ Read DIP Switch (74HC165) to Determine Base DMX Address
+// ✅ Read DIP Switch (74HC165) to Determine Base DMX Address and button state
 uint16_t readDIPSwitch() {
     uint16_t value = 0;
     digitalWrite(PIN_DIP_LATCH, LOW);
     delayMicroseconds(5);
     digitalWrite(PIN_DIP_LATCH, HIGH);
 
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 16; i++) {  // Assuming two 8-bit shift registers
         value |= (digitalRead(PIN_DIP_DATA) << i);
         digitalWrite(PIN_DIP_CLK, HIGH);
         delayMicroseconds(5);
         digitalWrite(PIN_DIP_CLK, LOW);
     }
 
-    return value & 0x01FF;  // Extract lower 9 bits (DMX Address)
+    // Extract button state from D7 of second 74HC165D (bit 15)
+    bool rawButtonState = !(value & (1 << 15));  
+
+    // Debounce logic
+    if (rawButtonState != buttonPressed) {
+        if (millis() - lastButtonPressTime > BUTTON_DEBOUNCE_DELAY_MS) {
+            buttonPressed = rawButtonState;
+            Serial.printf("Button State Updated: %s\n", buttonPressed ? "PRESSED" : "RELEASED");
+        }
+        lastButtonPressTime = millis();
+    }
+
+    Serial.printf("DIP Switch Value: %u\n", value & 0x01FF);
+    return value & 0x01FF;  // Mask out DMX address
+}
+
+
+void stepperStartHoming() {
+    if (!homingActive) {  
+        Serial.println("🏠 Starting Stepper Homing...");
+        homingActive = true;
+        homingFailed = false;
+        homingStartTime = millis();  // Start timeout tracking
+
+        stepper.setCurrentPosition(0);
+        stepper.setMaxSpeed(DEFAULT_STEPPER_HOMING_SPEED);  
+        stepper.setAcceleration(500);  
+        stepper.moveTo(-DEFAULT_STEPPER_HOMING_STEP_LIMIT);  // Move indefinitely in reverse
+    } 
 }
 
 void setup() {
-    Serial.begin(115200);
+    Serial.begin(921600);
     Serial.println("Setup...");
+
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    snprintf(macSuffix, sizeof(macSuffix), "%02X%02X%02X%02X", mac[2], mac[3], mac[4], mac[5]);
+
+    oledDisplay.begin();
+    webConfig.begin();
 
     // --- Configure DIP Switch Pins ---
     pinMode(PIN_DIP_CLK, OUTPUT);
@@ -144,7 +191,6 @@ void setup() {
     digitalWrite(PIN_MOTOR_A_2, LOW);
     digitalWrite(PIN_MOTOR_B_1, LOW);
     digitalWrite(PIN_MOTOR_B_2, LOW);
-    pinMode(PIN_BUTTON, INPUT_PULLUP); 
 
     ledcSetup(PWM_CHANNEL_A, PWM_FREQ, PWM_RESOLUTION);
     ledcSetup(PWM_CHANNEL_B, PWM_FREQ, PWM_RESOLUTION);
@@ -163,16 +209,16 @@ void setup() {
     pinMode(PIN_TMC2209_DIR, OUTPUT);
     tmc2209Serial.begin(115200, SERIAL_8N1, PIN_TMC2209_UART, PIN_TMC2209_UART);
     tmc2209.begin();
-    tmc2209.rms_current(TMC2209_CURRENT);
+    tmc2209.rms_current(DEFAULT_STEPPER_TMC2209_CURRENT);
     tmc2209.toff(0);
     tmc2209.pwm_autoscale(true);
 
     // Configure sensorless homing (StallGuard)
     tmc2209.TCOOLTHRS(0xFFFFF);
-    tmc2209.SGTHRS(STALL_THRESHOLD);
+    tmc2209.SGTHRS(DEFAULT_STEPPER_STALL_THRESHOLD);
 
-    stepper.setMaxSpeed(STEPPER_MAX_SPEED);
-    stepper.setAcceleration(STEPPER_ACCEL);    
+    stepper.setMaxSpeed(DEFAULT_STEPPER_MAX_SPEED);
+    stepper.setAcceleration(DEFAULT_STEPPER_ACCEL);    
     stepper.setCurrentPosition(0);  // Assume starting at position 0
 
     // --- Configure DMX ---
@@ -192,6 +238,9 @@ void setup() {
     digitalWrite(PIN_RELAY_1, LOW);
     digitalWrite(PIN_RELAY_2, LOW);
 
+
+    stepperStartHoming();
+
     Serial.println("TMC2209 READY.");
 }
 
@@ -199,17 +248,17 @@ void controlStepper() {
     int dmxSpeed = data[DMX_STEPPER_SPEED];  
     int dmxTarget = data[DMX_STEPPER_POSITION];
 
-    long stepperMaxSpeed = map(dmxSpeed, 0, 255, 100, 3000);  
+    long stepperMaxSpeed = map(dmxSpeed, 0, 255, 1, DEFAULT_STEPPER_MAX_SPEED);  
     stepper.setMaxSpeed(stepperMaxSpeed);
 
-    int newTarget = dmxTarget * STEPPER_SCALE;
+    int newTarget = dmxTarget * DEFAULT_STEPPER_SCALE;
 
-    if (newTarget == 0 && !homingActive) {  
-        Serial.println("🏠 Starting Homing...");
-        homingActive = true;
-        stepper.setMaxSpeed(1000);  
-        stepper.setAcceleration(500);  
-        stepper.moveTo(-50000);  // Move indefinitely in reverse
+    if (STEPPER_REVERSED) {
+        newTarget = -newTarget;  // Reverse direction
+    }
+
+    if (255 == data[DMX_STEPPER_POSITION] && !homingActive) {  
+        stepperStartHoming();
     } 
     else if (!homingActive && newTarget != stepperTargetPosition) {  
         stepperTargetPosition = newTarget;
@@ -218,60 +267,108 @@ void controlStepper() {
     }
 }
 
+void controlMotor(int dmxValue, int pin_pwm, int pin_direction, int pwm_channel, int motorIndex) {
+    static int lastDmxValue[2] = {-1, -1};  // Assuming 2 motors (adjust if needed)
+    static int lastSpeed[2] = {-1, -1};
+    static bool lastDirection[2] = {false, false};
 
-void controlMotor(int dmxValue, int pin_pwm, int pin_direction, int pwm_channel) {
+    if (dmxValue == lastDmxValue[motorIndex]) {
+        return; // No change, skip updates
+    }
+
+    lastDmxValue[motorIndex] = dmxValue;
     int speed = 0;
+    bool direction = false;
 
     if (dmxValue == 0 || dmxValue == 128) {  // 🚦 Stop Motor
-        digitalWrite(pin_direction, LOW);
         speed = 0;
     } else if (dmxValue < 128) {  // 🔄 Reverse
         speed = map(dmxValue, 1, 127, 1, 255);  // Reverse speed (1-255)
-        digitalWrite(pin_direction, HIGH);
+        direction = true;
     } else {  // 🚀 Forward
         speed = map(dmxValue, 129, 255, 1, 255);  // Forward speed (1-255)
-        digitalWrite(pin_direction, LOW);
+        direction = false;
     }
-    ledcWrite(pwm_channel, speed);  // Set PWM speed
 
-    Serial.printf("Motor on PWM %d: DMX=%d, Speed=%d\n", pwm_channel, dmxValue, speed);
+    if (speed != lastSpeed[motorIndex] || direction != lastDirection[motorIndex]) {
+        digitalWrite(pin_direction, direction ? HIGH : LOW);
+        ledcWrite(pwm_channel, speed);
+
+        Serial.printf("Motor %d updated - PWM %d: DMX=%d, Speed=%d, Direction=%s\n", 
+                      motorIndex, pwm_channel, dmxValue, speed, direction ? "Reverse" : "Forward");
+
+        lastSpeed[motorIndex] = speed;
+        lastDirection[motorIndex] = direction;
+    }
+}
+
+void controlServo(Servo &servo, int dmxValue, int &lastDmxValue, int minMicros, int maxMicros, bool isReversed) {
+    if (dmxValue == lastDmxValue) {
+        return; // No change, skip updates
+    }
+
+    lastDmxValue = dmxValue;
+    int pulseWidth = map(dmxValue, 0, 255, minMicros, maxMicros);
+
+    if (isReversed) {
+        pulseWidth = minMicros + maxMicros - pulseWidth;  // Reverse direction
+    }
+
+    servo.writeMicroseconds(pulseWidth);
+
+    Serial.printf("Servo updated - DMX=%d, Pulse Width=%d, Reversed=%s\n", dmxValue, pulseWidth, isReversed ? "Yes" : "No");
 }
 
 void loop() {
     dmx_packet_t packet;
+    static int lastServoValues[4] = {-1, -1, -1, -1};
 
     if (dmx_receive(dmxPort, &packet, DMX_TIMEOUT_TICK)) {
         if (!packet.err) {
             dmx_read(dmxPort, data, packet.size);
-            controlMotor(data[DMX_MOTOR_A], PIN_MOTOR_A_1, PIN_MOTOR_A_2, PWM_CHANNEL_A);
-            controlMotor(data[DMX_MOTOR_B], PIN_MOTOR_B_1, PIN_MOTOR_B_2, PWM_CHANNEL_B);
+            controlMotor(data[DMX_MOTOR_A], PIN_MOTOR_A_1, PIN_MOTOR_A_2, PWM_CHANNEL_A, 0);
+            controlMotor(data[DMX_MOTOR_B], PIN_MOTOR_B_1, PIN_MOTOR_B_2, PWM_CHANNEL_B, 1);
             digitalWrite(PIN_RELAY_1, data[DMX_RELAY_1] > 127);
             digitalWrite(PIN_RELAY_2, data[DMX_RELAY_2] > 127);
-            servo1.writeMicroseconds(map(data[DMX_SERVO_1], 0, 255, Servo1MinMicros, Servo1MaxMicros));
-            servo2.writeMicroseconds(map(data[DMX_SERVO_2], 0, 255, Servo2MinMicros, Servo2MaxMicros));
-            servo3.writeMicroseconds(map(data[DMX_SERVO_3], 0, 255, Servo3MinMicros, Servo3MaxMicros));
-            servo4.writeMicroseconds(map(data[DMX_SERVO_4], 0, 255, Servo4MinMicros, Servo4MaxMicros));
+            controlServo(servo1, data[DMX_SERVO_1], lastServoValues[0], Servo1MinMicros, Servo1MaxMicros, SERVO_1_REVERSED);
+            controlServo(servo2, data[DMX_SERVO_2], lastServoValues[1], Servo2MinMicros, Servo2MaxMicros, SERVO_2_REVERSED);
+            controlServo(servo3, data[DMX_SERVO_3], lastServoValues[2], Servo3MinMicros, Servo3MaxMicros, SERVO_3_REVERSED);
+            controlServo(servo4, data[DMX_SERVO_4], lastServoValues[3], Servo4MinMicros, Servo4MaxMicros, SERVO_4_REVERSED);
             controlStepper();
         }
     }
 
-    if (digitalRead(PIN_BUTTON) == LOW && !buttonPressed) {
-        Serial.println("Button Pressed!");
-        buttonPressed = true;
-    } else if (digitalRead(PIN_BUTTON) == HIGH && buttonPressed) {
-        buttonPressed = false;
-    }    
-
     if (homingActive) {
         stepper.run();  
 
-        if (tmc2209.SG_RESULT() < STALL_THRESHOLD) {  
+        // Check for stall detection
+        if (tmc2209.SG_RESULT() < DEFAULT_STEPPER_STALL_THRESHOLD) {  
             Serial.println("✅ Homing Complete!");
             stepper.setCurrentPosition(0);
             stepper.stop();
             homingActive = false;
         }
+
+        // Check for timeout or excessive steps
+        if ((millis() - homingStartTime > DEFAULT_STEPPER_HOMING_TIMEOUT_MS) || abs(stepper.currentPosition()) >= DEFAULT_STEPPER_HOMING_STEP_LIMIT) {
+            Serial.println("❌ Homing Failed: Timeout or Step Limit Exceeded!");
+            stepper.stop();
+            homingActive = false;
+            homingFailed = true;
+        }
     } else {
-        stepper.run();  
-    }    
+        stepper.run();
+    }  
+
+    // Handle button press logic
+    static bool lastButtonState = false;
+    if (buttonPressed && !lastButtonState) {
+        Serial.println("Button Pressed!");
+        // Add custom button logic here
+    }
+    lastButtonState = buttonPressed;
+
+    webConfig.handleClient();
+
+    oledDisplay.updateDMXInfo(baseDMX, DMX_LAST, dmxIsConnected, webConfig.isWiFiActive(), macSuffix);
 }
