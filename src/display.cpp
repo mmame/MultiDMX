@@ -34,11 +34,11 @@ void Display::updateDMXInfo(uint16_t baseAddress, uint16_t lastAddress, bool dmx
         display.print("-");
         display.print(lastAddress);
         display.setCursor(0, 16);
-        display.print("DMX Status: ");
+        display.print("DMX: ");
         display.print(dmxStatus ? "Connected" : "Disconnected");
         display.setCursor(0, 32);
         display.print("WiFi: ");
-        display.print(wifiStatus ? "ON" : "OFF");
+        display.print(wifiStatus ? "192.168.4.1" : "OFF");
         display.setCursor(0, 48);
         display.print("SSID: MultiDMX-");
         display.print(macSuffix);

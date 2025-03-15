@@ -28,7 +28,7 @@ public:
     WebConfig();
     void begin();
     void handleClient();
-    void startWiFi(const char* macSuffix);
+    void startWiFi();
     void stopWiFi();
     bool isWiFiActive();
 
@@ -50,6 +50,7 @@ private:
     Preferences preferences;
     unsigned long wifiStopTime;
     bool wifiActive;
+    char macSuffix[5];
 
     void handleRoot();
     void handleSave();

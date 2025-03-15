@@ -40,7 +40,9 @@
 
 // ✅ I2C Display Pins
 #define PIN_I2C_SDA    33  
-#define PIN_I2C_SCL    35  
+#define PIN_I2C_SCL    0  
+
+#define PIN_BUTTON     35
 
 // ✅ Centralized DMX Base Addresses
 #define DMX_SERVO_1             (baseDMX + 1)
@@ -119,36 +121,23 @@ bool homingFailed = false;
 char macSuffix[5];  // 4 chars + null terminator
 WebConfig webConfig;
 
-// ✅ Read DIP Switch (74HC165) to Determine Base DMX Address and button state
+// ✅ Read DIP Switch (74HC165) to Determine Base DMX Address and Button State
 uint16_t readDIPSwitch() {
     uint16_t value = 0;
     digitalWrite(PIN_DIP_LATCH, LOW);
     delayMicroseconds(5);
     digitalWrite(PIN_DIP_LATCH, HIGH);
 
-    for (int i = 0; i < 16; i++) {  // Assuming two 8-bit shift registers
+    for (int i = 15; i >= 0; i--) {  // **Reverse bit order**
         value |= (digitalRead(PIN_DIP_DATA) << i);
         digitalWrite(PIN_DIP_CLK, HIGH);
         delayMicroseconds(5);
         digitalWrite(PIN_DIP_CLK, LOW);
     }
 
-    // Extract button state from D7 of second 74HC165D (bit 15)
-    bool rawButtonState = !(value & (1 << 15));  
-
-    // Debounce logic
-    if (rawButtonState != buttonPressed) {
-        if (millis() - lastButtonPressTime > BUTTON_DEBOUNCE_DELAY_MS) {
-            buttonPressed = rawButtonState;
-            Serial.printf("Button State Updated: %s\n", buttonPressed ? "PRESSED" : "RELEASED");
-        }
-        lastButtonPressTime = millis();
-    }
-
-    Serial.printf("DIP Switch Value: %u\n", value & 0x01FF);
+    //Serial.printf("Input Value: %u\n", value);
     return value & 0x01FF;  // Mask out DMX address
 }
-
 
 void stepperStartHoming() {
     if (!homingActive) {  
@@ -165,7 +154,7 @@ void stepperStartHoming() {
 }
 
 void setup() {
-    Serial.begin(921600);
+    Serial.begin(115200);
     Serial.println("Setup...");
 
     uint8_t mac[6];
@@ -199,6 +188,8 @@ void setup() {
 
     pinMode(PIN_TMC2209_STEP, OUTPUT);
     pinMode(PIN_TMC2209_DIR, OUTPUT);
+
+    pinMode(PIN_BUTTON, INPUT);
 
     // --- Read DIP Switch ---
     baseDMX = readDIPSwitch();
@@ -275,7 +266,7 @@ void controlMotor(int dmxValue, int pin_pwm, int pin_direction, int pwm_channel,
     if (dmxValue == lastDmxValue[motorIndex]) {
         return; // No change, skip updates
     }
-
+    
     lastDmxValue[motorIndex] = dmxValue;
     int speed = 0;
     bool direction = false;
@@ -323,8 +314,11 @@ void loop() {
     dmx_packet_t packet;
     static int lastServoValues[4] = {-1, -1, -1, -1};
 
+    baseDMX = readDIPSwitch();
+
     if (dmx_receive(dmxPort, &packet, DMX_TIMEOUT_TICK)) {
         if (!packet.err) {
+            dmxIsConnected = true;
             dmx_read(dmxPort, data, packet.size);
             controlMotor(data[DMX_MOTOR_A], PIN_MOTOR_A_1, PIN_MOTOR_A_2, PWM_CHANNEL_A, 0);
             controlMotor(data[DMX_MOTOR_B], PIN_MOTOR_B_1, PIN_MOTOR_B_2, PWM_CHANNEL_B, 1);
@@ -336,6 +330,10 @@ void loop() {
             controlServo(servo4, data[DMX_SERVO_4], lastServoValues[3], Servo4MinMicros, Servo4MaxMicros, SERVO_4_REVERSED);
             controlStepper();
         }
+    }
+    else
+    {
+        dmxIsConnected = false;
     }
 
     if (homingActive) {
@@ -361,12 +359,20 @@ void loop() {
     }  
 
     // Handle button press logic
-    static bool lastButtonState = false;
-    if (buttonPressed && !lastButtonState) {
-        Serial.println("Button Pressed!");
-        // Add custom button logic here
+    // 🛠️ Debounce logic
+    bool rawButtonState = digitalRead(PIN_BUTTON);
+    if (rawButtonState != buttonPressed) {
+        if (millis() - lastButtonPressTime > BUTTON_DEBOUNCE_DELAY_MS) {
+            buttonPressed = rawButtonState;
+            Serial.printf("Button State Updated: %s\n", buttonPressed ? "PRESSED" : "RELEASED");
+            if (buttonPressed)
+            {
+                webConfig.startWiFi();
+            }
+        }
+        lastButtonPressTime = millis();
     }
-    lastButtonState = buttonPressed;
+
 
     webConfig.handleClient();
 

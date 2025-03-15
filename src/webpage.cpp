@@ -12,11 +12,10 @@ void WebConfig::begin() {
     // Generate MAC-based SSID suffix
     uint8_t mac[6];
     WiFi.macAddress(mac);
-    char macSuffix[5];
     snprintf(macSuffix, sizeof(macSuffix), "%02X%02X%02X%02X", mac[2], mac[3], mac[4], mac[5]);
 
     // Start WiFi at boot and set stop time 60 seconds later
-    startWiFi(macSuffix);
+    startWiFi();
     wifiStopTime = millis() + WIFI_INITIAL_ACTIVE_DURATION_MS;
 }
 
@@ -29,7 +28,7 @@ void WebConfig::handleReset() {
     ESP.restart();
 }
 
-void WebConfig::startWiFi(const char* macSuffix) {
+void WebConfig::startWiFi() {
     if (!wifiActive) {
         char ssid[16];
         snprintf(ssid, sizeof(ssid), "MultiDMX-%s", macSuffix);
@@ -38,10 +37,9 @@ void WebConfig::startWiFi(const char* macSuffix) {
         Serial.println("WiFi AP started. Access at 192.168.4.1");
         server.begin();
         wifiActive = true;
-
-        // Set the initial WiFi stop time (if called manually, extend by normal duration)
-        wifiStopTime = millis() + WIFI_ACTIVE_DURATION_MS;
     }
+    // Set the initial WiFi stop time (if called manually, extend by normal duration)
+    wifiStopTime = millis() + WIFI_ACTIVE_DURATION_MS;
 }
 
 void WebConfig::stopWiFi() {
