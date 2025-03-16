@@ -1,11 +1,12 @@
 #include <Arduino.h>
 #include <esp_dmx.h>
 #include <ESP32Servo.h>
-#include <AccelStepper.h>
+#include <FastAccelStepper.h>
 #include <TMCStepper.h>
 #include "display.h"
 #include <Wire.h>
 #include "webpage.h"
+#include "SoftwareSerial.h"
 
 // ✅ DMX RS-485 Pins
 #define PIN_RS485_TX   17
@@ -45,31 +46,19 @@
 #define PIN_BUTTON     35
 
 // ✅ Centralized DMX Base Addresses
-#define DMX_SERVO_1             (baseDMX + 1)
-#define DMX_SERVO_2             (baseDMX + 2)
-#define DMX_SERVO_3             (baseDMX + 3)
-#define DMX_SERVO_4             (baseDMX + 4)
-#define DMX_MOTOR_A             (baseDMX + 5)
-#define DMX_MOTOR_B             (baseDMX + 6)
-#define DMX_STEPPER_SPEED       (baseDMX + 7)
-#define DMX_STEPPER_POSITION    (baseDMX + 8)
-#define DMX_RELAY_1             (baseDMX + 9)
-#define DMX_RELAY_2             (baseDMX + 10)
+#define DMX_SERVO_1             (baseDMX)
+#define DMX_SERVO_2             (baseDMX + 1)
+#define DMX_SERVO_3             (baseDMX + 2)
+#define DMX_SERVO_4             (baseDMX + 3)
+#define DMX_MOTOR_A             (baseDMX + 4)
+#define DMX_MOTOR_B             (baseDMX + 5)
+#define DMX_STEPPER_SPEED       (baseDMX + 6)
+#define DMX_STEPPER_POSITION    (baseDMX + 7)
+#define DMX_RELAY_1             (baseDMX + 8)
+#define DMX_RELAY_2             (baseDMX + 9)
 #define DMX_LAST                DMX_RELAY_2
 
 #define BUTTON_DEBOUNCE_DELAY_MS 100
-
-#define DEFAULT_STEPPER_TMC2209_CURRENT   600  // Motor current in mA
-#define DEFAULT_STEPPER_SCALE     100  // Position scaling factor
-#define DEFAULT_STEPPER_STALL_THRESHOLD   5    // Stall detection sensitivity (-64 to 63)
-#define DEFAULT_STEPPER_MAX_SPEED 2000 // Max speed in steps/sec
-#define DEFAULT_STEPPER_HOMING_SPEED 1000 // Homing speed in steps/sec
-#define DEFAULT_STEPPER_ACCEL     500  // Acceleration (steps/sec^2)
-#define DEFAULT_STEPPER_HOMING_TIMEOUT_MS 5000  // 5 seconds timeout
-#define DEFAULT_STEPPER_HOMING_STEP_LIMIT 50000 // Max steps before giving up
-
-#define DEFAULT_SERVO_MICROS_MIN  500
-#define DEFAULT_SERVO_MICROS_MAX  2500
 
 // Stepper direction (true = reversed, false = normal)
 const bool STEPPER_REVERSED = false;
@@ -84,7 +73,7 @@ Display oledDisplay(PIN_I2C_SDA, PIN_I2C_SCL);
 
 // ✅ Global Variables
 volatile int32_t stepperPosition = 0;  // Hardware-tracked step count
-dmx_port_t dmxPort = 1;
+dmx_port_t dmxPort = DMX_NUM_1;
 byte data[DMX_PACKET_SIZE];
 bool dmxIsConnected = false;
 unsigned long lastUpdate = millis();
@@ -111,9 +100,10 @@ const int Servo4MaxMicros = DEFAULT_SERVO_MICROS_MAX;
 Servo servo1, servo2, servo3, servo4;
 
 // Stepper Driver
-AccelStepper stepper(AccelStepper::DRIVER, PIN_TMC2209_STEP, PIN_TMC2209_DIR);
-HardwareSerial tmc2209Serial(2);
-TMC2209Stepper tmc2209(&tmc2209Serial, 0.11f, 0);
+// FastAccelStepper Instance
+FastAccelStepperEngine engine;
+FastAccelStepper *stepper = NULL;
+TMC2209Stepper tmc2209(PIN_TMC2209_UART, PIN_TMC2209_UART, 0.11, 0);
 int32_t stepperTargetPosition = 0;  // Target position
 bool homingActive = false; 
 unsigned long homingStartTime = 0;
@@ -146,10 +136,10 @@ void stepperStartHoming() {
         homingFailed = false;
         homingStartTime = millis();  // Start timeout tracking
 
-        stepper.setCurrentPosition(0);
-        stepper.setMaxSpeed(DEFAULT_STEPPER_HOMING_SPEED);  
-        stepper.setAcceleration(500);  
-        stepper.moveTo(-DEFAULT_STEPPER_HOMING_STEP_LIMIT);  // Move indefinitely in reverse
+        stepper->setCurrentPosition(0);
+        stepper->setSpeedInHz(DEFAULT_STEPPER_HOMING_SPEED);  
+        stepper->setAcceleration(500);  
+        stepper->moveTo(-DEFAULT_STEPPER_HOMING_STEP_LIMIT);  // Move indefinitely in reverse
     } 
 }
 
@@ -198,8 +188,25 @@ void setup() {
     // --- Configure TMC2209 ---
     pinMode(PIN_TMC2209_STEP, OUTPUT);
     pinMode(PIN_TMC2209_DIR, OUTPUT);
-    tmc2209Serial.begin(115200, SERIAL_8N1, PIN_TMC2209_UART, PIN_TMC2209_UART);
+
+    //tmc2209Serial.begin(9600, SERIAL_8N1, PIN_TMC2209_UART, PIN_TMC2209_UART);
     tmc2209.begin();
+    delay(1000);
+    Serial.println("\n=== TMC2209 UART Communication Check ===");
+
+    Serial.printf(
+        "IFCNT: %d\n",
+        tmc2209.IFCNT()
+    );
+
+    Serial.println("========================================");
+
+    //disable microstepping -> full steps
+    tmc2209.mres(0);
+
+    // Enable internal sense resistors
+    tmc2209.internal_Rsense(true);
+
     tmc2209.rms_current(DEFAULT_STEPPER_TMC2209_CURRENT);
     tmc2209.toff(0);
     tmc2209.pwm_autoscale(true);
@@ -208,9 +215,12 @@ void setup() {
     tmc2209.TCOOLTHRS(0xFFFFF);
     tmc2209.SGTHRS(DEFAULT_STEPPER_STALL_THRESHOLD);
 
-    stepper.setMaxSpeed(DEFAULT_STEPPER_MAX_SPEED);
-    stepper.setAcceleration(DEFAULT_STEPPER_ACCEL);    
-    stepper.setCurrentPosition(0);  // Assume starting at position 0
+    engine.init();    
+    stepper = engine.stepperConnectToPin(PIN_TMC2209_STEP);
+    stepper->setDirectionPin(PIN_TMC2209_DIR);
+    stepper->setSpeedInHz(DEFAULT_STEPPER_MAX_SPEED);
+    stepper->setAcceleration(DEFAULT_STEPPER_ACCEL);    
+    stepper->setCurrentPosition(0);  // Assume starting at position 0
 
     // --- Configure DMX ---
     dmx_config_t config = DMX_CONFIG_DEFAULT;
@@ -229,6 +239,7 @@ void setup() {
     digitalWrite(PIN_RELAY_1, LOW);
     digitalWrite(PIN_RELAY_2, LOW);
 
+    tmc2209.toff(4);
 
     stepperStartHoming();
 
@@ -240,7 +251,7 @@ void controlStepper() {
     int dmxTarget = data[DMX_STEPPER_POSITION];
 
     long stepperMaxSpeed = map(dmxSpeed, 0, 255, 1, DEFAULT_STEPPER_MAX_SPEED);  
-    stepper.setMaxSpeed(stepperMaxSpeed);
+    stepper->setSpeedInHz(stepperMaxSpeed);
 
     int newTarget = dmxTarget * DEFAULT_STEPPER_SCALE;
 
@@ -253,8 +264,8 @@ void controlStepper() {
     } 
     else if (!homingActive && newTarget != stepperTargetPosition) {  
         stepperTargetPosition = newTarget;
-        stepper.moveTo(stepperTargetPosition);
-        Serial.printf("Moving to position: %d steps\n", stepperTargetPosition);
+        stepper->moveTo(stepperTargetPosition);
+        Serial.printf("Moving to position: %d steps speed %d\n", stepperTargetPosition, stepperMaxSpeed);
     }
 }
 
@@ -316,7 +327,7 @@ void loop() {
 
     baseDMX = readDIPSwitch();
 
-    if (dmx_receive(dmxPort, &packet, DMX_TIMEOUT_TICK)) {
+    /*if (dmx_receive(dmxPort, &packet, DMX_TIMEOUT_TICK)) {
         if (!packet.err) {
             dmxIsConnected = true;
             dmx_read(dmxPort, data, packet.size);
@@ -330,32 +341,34 @@ void loop() {
             controlServo(servo4, data[DMX_SERVO_4], lastServoValues[3], Servo4MinMicros, Servo4MaxMicros, SERVO_4_REVERSED);
             controlStepper();
         }
+        else
+        {
+            dmxIsConnected = false;
+        }
     }
     else
     {
         dmxIsConnected = false;
-    }
+    }*/
 
     if (homingActive) {
-        stepper.run();  
-
+        uint16_t sg_result = tmc2209.SG_RESULT();
+        Serial.printf("Homing SG %d\n", sg_result);
         // Check for stall detection
-        if (tmc2209.SG_RESULT() < DEFAULT_STEPPER_STALL_THRESHOLD) {  
+        /*if (tmc2209.SG_RESULT() < DEFAULT_STEPPER_STALL_THRESHOLD) {  
             Serial.println("✅ Homing Complete!");
             stepper.setCurrentPosition(0);
             stepper.stop();
             homingActive = false;
-        }
+        }*/
 
         // Check for timeout or excessive steps
-        if ((millis() - homingStartTime > DEFAULT_STEPPER_HOMING_TIMEOUT_MS) || abs(stepper.currentPosition()) >= DEFAULT_STEPPER_HOMING_STEP_LIMIT) {
+        if ((millis() - homingStartTime > DEFAULT_STEPPER_HOMING_TIMEOUT_MS) || abs(stepper->getCurrentPosition()) >= DEFAULT_STEPPER_HOMING_STEP_LIMIT) {
             Serial.println("❌ Homing Failed: Timeout or Step Limit Exceeded!");
-            stepper.stop();
+            stepper->stopMove();
             homingActive = false;
             homingFailed = true;
         }
-    } else {
-        stepper.run();
     }  
 
     // Handle button press logic
