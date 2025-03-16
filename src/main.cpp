@@ -130,7 +130,8 @@ void FastTask(void *pvParameters) {
             else if ((millis() - homingStartTime > DEFAULT_STEPPER_HOMING_TIMEOUT_MS) ||
                     abs(stepper->getCurrentPosition()) >= DEFAULT_STEPPER_HOMING_STEP_LIMIT) {
                 Serial.println("❌ Homing Failed: Timeout or Step Limit Exceeded!");
-                stepper->stopMove();
+                stepper->setCurrentPosition(0);
+                stepper->forceStop();
                 homingActive = false;
                 homingFailed = true;
             }
