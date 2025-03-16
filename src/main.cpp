@@ -137,8 +137,8 @@ void stepperStartHoming() {
         homingStartTime = millis();  // Start timeout tracking
 
         stepper->setCurrentPosition(0);
-        stepper->setSpeedInHz(DEFAULT_STEPPER_HOMING_SPEED);  
-        stepper->setAcceleration(500);  
+        stepper->setSpeedInHz(50000);  
+        stepper->setAcceleration(50000);  
         stepper->moveTo(-DEFAULT_STEPPER_HOMING_STEP_LIMIT);  // Move indefinitely in reverse
     } 
 }
@@ -201,8 +201,16 @@ void setup() {
 
     Serial.println("========================================");
 
-    //disable microstepping -> full steps
-    tmc2209.mres(0);
+    //Stepping
+    tmc2209.mres(16);
+
+    Serial.printf(
+        "MRES: %d\n",
+        tmc2209.mres()
+    );
+
+    //No analog VREF
+    tmc2209.I_scale_analog(false);
 
     // Enable internal sense resistors
     tmc2209.internal_Rsense(true);
@@ -214,6 +222,7 @@ void setup() {
     // Configure sensorless homing (StallGuard)
     tmc2209.TCOOLTHRS(0xFFFFF);
     tmc2209.SGTHRS(DEFAULT_STEPPER_STALL_THRESHOLD);
+    tmc2209.iholddelay(10);
 
     engine.init();    
     stepper = engine.stepperConnectToPin(PIN_TMC2209_STEP);
@@ -239,7 +248,7 @@ void setup() {
     digitalWrite(PIN_RELAY_1, LOW);
     digitalWrite(PIN_RELAY_2, LOW);
 
-    tmc2209.toff(4);
+    tmc2209.toff(3);
 
     stepperStartHoming();
 
@@ -327,7 +336,7 @@ void loop() {
 
     baseDMX = readDIPSwitch();
 
-    /*if (dmx_receive(dmxPort, &packet, DMX_TIMEOUT_TICK)) {
+    if (dmx_receive(dmxPort, &packet, DMX_TIMEOUT_TICK)) {
         if (!packet.err) {
             dmxIsConnected = true;
             dmx_read(dmxPort, data, packet.size);
@@ -349,21 +358,19 @@ void loop() {
     else
     {
         dmxIsConnected = false;
-    }*/
+    }
 
     if (homingActive) {
         uint16_t sg_result = tmc2209.SG_RESULT();
         Serial.printf("Homing SG %d\n", sg_result);
         // Check for stall detection
-        /*if (tmc2209.SG_RESULT() < DEFAULT_STEPPER_STALL_THRESHOLD) {  
+        if (tmc2209.SG_RESULT() < DEFAULT_STEPPER_STALL_THRESHOLD) {  
             Serial.println("✅ Homing Complete!");
-            stepper.setCurrentPosition(0);
-            stepper.stop();
+            stepper->setCurrentPosition(0);
+            stepper->stopMove();
             homingActive = false;
-        }*/
-
-        // Check for timeout or excessive steps
-        if ((millis() - homingStartTime > DEFAULT_STEPPER_HOMING_TIMEOUT_MS) || abs(stepper->getCurrentPosition()) >= DEFAULT_STEPPER_HOMING_STEP_LIMIT) {
+        }
+        else if ((millis() - homingStartTime > DEFAULT_STEPPER_HOMING_TIMEOUT_MS) || abs(stepper->getCurrentPosition()) >= DEFAULT_STEPPER_HOMING_STEP_LIMIT) {
             Serial.println("❌ Homing Failed: Timeout or Step Limit Exceeded!");
             stepper->stopMove();
             homingActive = false;
