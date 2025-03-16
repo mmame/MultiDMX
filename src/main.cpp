@@ -111,6 +111,7 @@ bool homingFailed = false;
 char macSuffix[5];  // 4 chars + null terminator
 WebConfig webConfig;
 
+
 // ✅ Read DIP Switch (74HC165) to Determine Base DMX Address and Button State
 uint16_t readDIPSwitch() {
     uint16_t value = 0;
@@ -137,8 +138,8 @@ void stepperStartHoming() {
         homingStartTime = millis();  // Start timeout tracking
 
         stepper->setCurrentPosition(0);
-        stepper->setSpeedInHz(50000);  
-        stepper->setAcceleration(50000);  
+        stepper->setSpeedInHz(DEFAULT_STEPPER_HOMING_SPEED);  
+        stepper->setAcceleration(DEFAULT_STEPPER_HOMING_ACCEL);  
         stepper->moveTo(-DEFAULT_STEPPER_HOMING_STEP_LIMIT);  // Move indefinitely in reverse
     } 
 }
@@ -204,11 +205,6 @@ void setup() {
     //Stepping
     tmc2209.mres(16);
 
-    Serial.printf(
-        "MRES: %d\n",
-        tmc2209.mres()
-    );
-
     //No analog VREF
     tmc2209.I_scale_analog(false);
 
@@ -227,7 +223,7 @@ void setup() {
     engine.init();    
     stepper = engine.stepperConnectToPin(PIN_TMC2209_STEP);
     stepper->setDirectionPin(PIN_TMC2209_DIR);
-    stepper->setSpeedInHz(DEFAULT_STEPPER_MAX_SPEED);
+    stepper->setSpeedInHz(DEFAULT_STEPPER_SPEED);
     stepper->setAcceleration(DEFAULT_STEPPER_ACCEL);    
     stepper->setCurrentPosition(0);  // Assume starting at position 0
 
@@ -259,7 +255,7 @@ void controlStepper() {
     int dmxSpeed = data[DMX_STEPPER_SPEED];  
     int dmxTarget = data[DMX_STEPPER_POSITION];
 
-    long stepperMaxSpeed = map(dmxSpeed, 0, 255, 1, DEFAULT_STEPPER_MAX_SPEED);  
+    long stepperMaxSpeed = map(dmxSpeed, 0, 255, 1, DEFAULT_STEPPER_SPEED);  
     stepper->setSpeedInHz(stepperMaxSpeed);
 
     int newTarget = dmxTarget * DEFAULT_STEPPER_SCALE;

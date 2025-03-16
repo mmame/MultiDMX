@@ -152,7 +152,7 @@ int WebConfig::getStepperStallThreshold() {
 }
 
 int WebConfig::getStepperMaxSpeed() {
-    return preferences.getInt("stepper_max_speed", DEFAULT_STEPPER_MAX_SPEED);
+    return preferences.getInt("stepper_max_speed", DEFAULT_STEPPER_SPEED);
 }
 
 int WebConfig::getServoMinMicros(int servoIndex) {
