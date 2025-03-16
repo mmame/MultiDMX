@@ -124,7 +124,7 @@ void FastTask(void *pvParameters) {
             if (sg_result < DEFAULT_STEPPER_STALL_THRESHOLD) {  
                 Serial.println("✅ Homing Complete!");
                 stepper->setCurrentPosition(0);
-                stepper->stopMove();
+                stepper->forceStop();
                 homingActive = false;
             } 
             else if ((millis() - homingStartTime > DEFAULT_STEPPER_HOMING_TIMEOUT_MS) ||
