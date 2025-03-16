@@ -111,6 +111,49 @@ bool homingFailed = false;
 char macSuffix[5];  // 4 chars + null terminator
 WebConfig webConfig;
 
+TaskHandle_t fastTaskHandle = NULL;
+
+// Fast Task Function (Runs on Core 1)
+void FastTask(void *pvParameters) {
+    while(true)
+    {
+        if (homingActive) {
+            uint16_t sg_result = tmc2209.SG_RESULT();
+            Serial.printf("Homing SG %d\n", sg_result);
+
+            if (sg_result < DEFAULT_STEPPER_STALL_THRESHOLD) {  
+                Serial.println("✅ Homing Complete!");
+                stepper->setCurrentPosition(0);
+                stepper->stopMove();
+                homingActive = false;
+            } 
+            else if ((millis() - homingStartTime > DEFAULT_STEPPER_HOMING_TIMEOUT_MS) ||
+                    abs(stepper->getCurrentPosition()) >= DEFAULT_STEPPER_HOMING_STEP_LIMIT) {
+                Serial.println("❌ Homing Failed: Timeout or Step Limit Exceeded!");
+                stepper->stopMove();
+                homingActive = false;
+                homingFailed = true;
+            }
+        }
+
+        // Handle button press logic
+        // 🛠️ Debounce logic
+        bool rawButtonState = digitalRead(PIN_BUTTON);
+        if (rawButtonState != buttonPressed) {
+            if (millis() - lastButtonPressTime > BUTTON_DEBOUNCE_DELAY_MS) {
+                buttonPressed = rawButtonState;
+                Serial.printf("Button State Updated: %s\n", buttonPressed ? "PRESSED" : "RELEASED");
+                if (buttonPressed)
+                {
+                    webConfig.startWiFi();
+                }
+            }
+            lastButtonPressTime = millis();
+        }
+
+        vTaskDelay(100 / portTICK_PERIOD_MS);  // Allow task switching
+    }
+}
 
 // ✅ Read DIP Switch (74HC165) to Determine Base DMX Address and Button State
 uint16_t readDIPSwitch() {
@@ -192,7 +235,7 @@ void setup() {
 
     //tmc2209Serial.begin(9600, SERIAL_8N1, PIN_TMC2209_UART, PIN_TMC2209_UART);
     tmc2209.begin();
-    delay(1000);
+    delay(100);
     Serial.println("\n=== TMC2209 UART Communication Check ===");
 
     Serial.printf(
@@ -246,6 +289,17 @@ void setup() {
 
     tmc2209.toff(3);
 
+    // Create Homing Task on Core 1
+    xTaskCreatePinnedToCore(
+        FastTask,  // Task function
+        "FastTask",  // Task name
+        4096,  // Stack size
+        NULL,  // Task parameters
+        1,  // Priority
+        &fastTaskHandle,  // Task handle
+        1  // Run on Core 1
+    );
+        
     stepperStartHoming();
 
     Serial.println("TMC2209 READY.");
@@ -355,40 +409,6 @@ void loop() {
     {
         dmxIsConnected = false;
     }
-
-    if (homingActive) {
-        uint16_t sg_result = tmc2209.SG_RESULT();
-        Serial.printf("Homing SG %d\n", sg_result);
-        // Check for stall detection
-        if (tmc2209.SG_RESULT() < DEFAULT_STEPPER_STALL_THRESHOLD) {  
-            Serial.println("✅ Homing Complete!");
-            stepper->setCurrentPosition(0);
-            stepper->stopMove();
-            homingActive = false;
-        }
-        else if ((millis() - homingStartTime > DEFAULT_STEPPER_HOMING_TIMEOUT_MS) || abs(stepper->getCurrentPosition()) >= DEFAULT_STEPPER_HOMING_STEP_LIMIT) {
-            Serial.println("❌ Homing Failed: Timeout or Step Limit Exceeded!");
-            stepper->stopMove();
-            homingActive = false;
-            homingFailed = true;
-        }
-    }  
-
-    // Handle button press logic
-    // 🛠️ Debounce logic
-    bool rawButtonState = digitalRead(PIN_BUTTON);
-    if (rawButtonState != buttonPressed) {
-        if (millis() - lastButtonPressTime > BUTTON_DEBOUNCE_DELAY_MS) {
-            buttonPressed = rawButtonState;
-            Serial.printf("Button State Updated: %s\n", buttonPressed ? "PRESSED" : "RELEASED");
-            if (buttonPressed)
-            {
-                webConfig.startWiFi();
-            }
-        }
-        lastButtonPressTime = millis();
-    }
-
 
     webConfig.handleClient();
 
