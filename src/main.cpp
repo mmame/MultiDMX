@@ -63,12 +63,6 @@
 // Stepper direction (true = reversed, false = normal)
 const bool STEPPER_REVERSED = false;
 
-// Individual servo direction settings
-const bool SERVO_1_REVERSED = false;
-const bool SERVO_2_REVERSED = false;
-const bool SERVO_3_REVERSED = false;
-const bool SERVO_4_REVERSED = false;
-
 Display oledDisplay(PIN_I2C_SDA, PIN_I2C_SCL);
 
 // ✅ Global Variables
@@ -80,15 +74,6 @@ unsigned long lastUpdate = millis();
 uint16_t baseDMX = 1;  // Base DMX Address
 volatile bool buttonPressed = false;  // Updated globally in readDIPSwitch()
 unsigned long lastButtonPressTime = 0;  // Track last state change
-
-const int Servo1MinMicros = DEFAULT_SERVO_MICROS_MIN;
-const int Servo1MaxMicros = DEFAULT_SERVO_MICROS_MAX;
-const int Servo2MinMicros = DEFAULT_SERVO_MICROS_MIN;
-const int Servo2MaxMicros = DEFAULT_SERVO_MICROS_MAX;
-const int Servo3MinMicros = DEFAULT_SERVO_MICROS_MIN;
-const int Servo3MaxMicros = DEFAULT_SERVO_MICROS_MAX;
-const int Servo4MinMicros = DEFAULT_SERVO_MICROS_MIN;
-const int Servo4MaxMicros = DEFAULT_SERVO_MICROS_MAX;
 
 // ✅ LEDC Configuration for H Bridge
 #define PWM_FREQ       5000  // 5 kHz PWM Frequency
@@ -121,14 +106,14 @@ void FastTask(void *pvParameters) {
             uint16_t sg_result = tmc2209.SG_RESULT();
             Serial.printf("Homing SG %d\n", sg_result);
 
-            if (sg_result < DEFAULT_STEPPER_STALL_THRESHOLD) {  
+            if (sg_result < webConfig.getStepperStallThreshold()) {  
                 Serial.println("✅ Homing Complete!");
                 stepper->setCurrentPosition(0);
                 stepper->forceStop();
                 homingActive = false;
             } 
-            else if ((millis() - homingStartTime > DEFAULT_STEPPER_HOMING_TIMEOUT_MS) ||
-                    abs(stepper->getCurrentPosition()) >= DEFAULT_STEPPER_HOMING_STEP_LIMIT) {
+            else if ((millis() - homingStartTime > webConfig.getStepperHomingTimeout()) ||
+                    abs(stepper->getCurrentPosition()) >= webConfig.getStepperHomingStepLimit()) {
                 Serial.println("❌ Homing Failed: Timeout or Step Limit Exceeded!");
                 stepper->setCurrentPosition(0);
                 stepper->forceStop();
@@ -182,9 +167,9 @@ void stepperStartHoming() {
         homingStartTime = millis();  // Start timeout tracking
 
         stepper->setCurrentPosition(0);
-        stepper->setSpeedInHz(DEFAULT_STEPPER_HOMING_SPEED);  
-        stepper->setAcceleration(DEFAULT_STEPPER_HOMING_ACCEL);  
-        stepper->moveTo(-DEFAULT_STEPPER_HOMING_STEP_LIMIT);  // Move indefinitely in reverse
+        stepper->setSpeedInHz(webConfig.getStepperHomingSpeed());  
+        stepper->setAcceleration(webConfig.getStepperHomingAccel());  
+        stepper->moveTo(-webConfig.getStepperHomingStepLimit());  // Move indefinitely in reverse
     } 
 }
 
@@ -255,20 +240,20 @@ void setup() {
     // Enable internal sense resistors
     tmc2209.internal_Rsense(true);
 
-    tmc2209.rms_current(DEFAULT_STEPPER_TMC2209_CURRENT);
+    tmc2209.rms_current(webConfig.getStepperCurrent());
     tmc2209.toff(0);
     tmc2209.pwm_autoscale(true);
 
     // Configure sensorless homing (StallGuard)
     tmc2209.TCOOLTHRS(0xFFFFF);
-    tmc2209.SGTHRS(DEFAULT_STEPPER_STALL_THRESHOLD);
+    //tmc2209.SGTHRS(webConfig.getStepperStallThreshold());
     tmc2209.iholddelay(10);
 
     engine.init();    
     stepper = engine.stepperConnectToPin(PIN_TMC2209_STEP);
     stepper->setDirectionPin(PIN_TMC2209_DIR);
-    stepper->setSpeedInHz(DEFAULT_STEPPER_SPEED);
-    stepper->setAcceleration(DEFAULT_STEPPER_ACCEL);    
+    stepper->setSpeedInHz(webConfig.getStepperMaxSpeed());
+    stepper->setAcceleration(webConfig.getStepperAccel());    
     stepper->setCurrentPosition(0);  // Assume starting at position 0
 
     // --- Configure DMX ---
@@ -310,10 +295,10 @@ void controlStepper() {
     int dmxSpeed = data[DMX_STEPPER_SPEED];  
     int dmxTarget = data[DMX_STEPPER_POSITION];
 
-    long stepperMaxSpeed = map(dmxSpeed, 0, 255, 1, DEFAULT_STEPPER_SPEED);  
+    long stepperMaxSpeed = map(dmxSpeed, 0, 255, 1, webConfig.getStepperMaxSpeed());  
     stepper->setSpeedInHz(stepperMaxSpeed);
 
-    int newTarget = dmxTarget * DEFAULT_STEPPER_SCALE;
+    int newTarget = dmxTarget * webConfig.getStepperScale();
 
     if (STEPPER_REVERSED) {
         newTarget = -newTarget;  // Reverse direction
@@ -356,7 +341,7 @@ void controlMotor(int dmxValue, int pin_pwm, int pin_direction, int pwm_channel,
         digitalWrite(pin_direction, direction ? HIGH : LOW);
         ledcWrite(pwm_channel, speed);
 
-        Serial.printf("Motor %d updated - PWM %d: DMX=%d, Speed=%d, Direction=%s\n", 
+        Serial.printf("Motor %d updated - PWM %d: DMX=%d, Speed=%d, Direction=%s\n",
                       motorIndex, pwm_channel, dmxValue, speed, direction ? "Reverse" : "Forward");
 
         lastSpeed[motorIndex] = speed;
@@ -393,12 +378,12 @@ void loop() {
             dmx_read(dmxPort, data, packet.size);
             controlMotor(data[DMX_MOTOR_A], PIN_MOTOR_A_1, PIN_MOTOR_A_2, PWM_CHANNEL_A, 0);
             controlMotor(data[DMX_MOTOR_B], PIN_MOTOR_B_1, PIN_MOTOR_B_2, PWM_CHANNEL_B, 1);
-            digitalWrite(PIN_RELAY_1, data[DMX_RELAY_1] > 127);
-            digitalWrite(PIN_RELAY_2, data[DMX_RELAY_2] > 127);
-            controlServo(servo1, data[DMX_SERVO_1], lastServoValues[0], Servo1MinMicros, Servo1MaxMicros, SERVO_1_REVERSED);
-            controlServo(servo2, data[DMX_SERVO_2], lastServoValues[1], Servo2MinMicros, Servo2MaxMicros, SERVO_2_REVERSED);
-            controlServo(servo3, data[DMX_SERVO_3], lastServoValues[2], Servo3MinMicros, Servo3MaxMicros, SERVO_3_REVERSED);
-            controlServo(servo4, data[DMX_SERVO_4], lastServoValues[3], Servo4MinMicros, Servo4MaxMicros, SERVO_4_REVERSED);
+            digitalWrite(PIN_RELAY_1, data[DMX_RELAY_1] >= 127);
+            digitalWrite(PIN_RELAY_2, data[DMX_RELAY_2] >= 127);
+            controlServo(servo1, data[DMX_SERVO_1], lastServoValues[0], webConfig.getServoMinMicros(1), webConfig.getServoMaxMicros(1), webConfig.isServoReversed(1));
+            controlServo(servo2, data[DMX_SERVO_2], lastServoValues[1], webConfig.getServoMinMicros(2), webConfig.getServoMaxMicros(2), webConfig.isServoReversed(2));
+            controlServo(servo3, data[DMX_SERVO_3], lastServoValues[2], webConfig.getServoMinMicros(3), webConfig.getServoMaxMicros(3), webConfig.isServoReversed(3));
+            controlServo(servo4, data[DMX_SERVO_4], lastServoValues[3], webConfig.getServoMinMicros(4), webConfig.getServoMaxMicros(4), webConfig.isServoReversed(4));
             controlStepper();
         }
         else

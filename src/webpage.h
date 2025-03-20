@@ -7,23 +7,6 @@
 #include <WebServer.h>
 #include <Preferences.h>
 
-#define DEFAULT_SSID "yourSSID"
-#define DEFAULT_PASSWORD "yourPASSWORD"
-#define DEFAULT_STEPPER_TMC2209_CURRENT 1000
-#define DEFAULT_STEPPER_SCALE 10000
-#define DEFAULT_STEPPER_STALL_THRESHOLD 10
-#define DEFAULT_STEPPER_SPEED 40000
-#define DEFAULT_STEPPER_ACCEL 60000
-#define DEFAULT_STEPPER_HOMING_SPEED 40000
-#define DEFAULT_STEPPER_HOMING_ACCEL 60000
-#define DEFAULT_STEPPER_HOMING_TIMEOUT_MS 10000
-#define DEFAULT_STEPPER_HOMING_STEP_LIMIT 1000000
-#define DEFAULT_SERVO_MICROS_MIN 500
-#define DEFAULT_SERVO_MICROS_MAX 2500
-
-#define WIFI_INITIAL_ACTIVE_DURATION_MS 60000  // 60 seconds after power-up
-#define WIFI_ACTIVE_DURATION_MS 300000  // 5 minutes
-
 class WebConfig {
 public:
     WebConfig();
@@ -39,6 +22,7 @@ public:
     int getStepperMaxSpeed();
     int getStepperHomingSpeed();
     int getStepperAccel();
+    int getStepperHomingAccel();
     int getStepperHomingTimeout();
     int getStepperHomingStepLimit();
     int getServoMinMicros(int servoIndex);
@@ -56,6 +40,7 @@ private:
     void handleRoot();
     void handleSave();
     void handleReset();
+    void handleConfig();
 };
 
 #endif
