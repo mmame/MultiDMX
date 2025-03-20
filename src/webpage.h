@@ -29,13 +29,14 @@ public:
     int getServoMaxMicros(int servoIndex);
     bool isStepperReversed();
     bool isServoReversed(int servoIndex);
+    char macSuffix[10];
+    int baseDMX;
 
 private:
     WebServer server;
     Preferences preferences;
     unsigned long wifiStopTime;
     bool wifiActive;
-    char macSuffix[5];
 
     void handleRoot();
     void handleSave();

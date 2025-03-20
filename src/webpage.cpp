@@ -30,6 +30,13 @@ const char webpageHTML[] PROGMEM = R"rawliteral(
                 fetch("/config")
                     .then(response => response.json())
                     .then(data => {
+                        document.getElementById("hwid").innerText = data.hwid;
+
+                        // Update DMX Table
+                        for (let i = 0; i <= 9; i++) {
+                            document.getElementById("dmx" + i).innerText = data.baseDMX + i;
+                        }
+
                         document.getElementById("stepper_current").value = data.stepper_current;
                         document.getElementById("stepper_scale").value = data.stepper_scale;
                         document.getElementById("stepper_max_speed").value = data.stepper_max_speed;
@@ -52,7 +59,56 @@ const char webpageHTML[] PROGMEM = R"rawliteral(
     </head>
     <body>
         <h2>MultiDMX Configuration</h2>
+        <p><strong>Hardware ID:</strong> <span id="hwid">Loading...</span></p>
         <p>For more information, see <a href="https://github.com/mmame/MultiDMX">https://github.com/mmame/MultiDMX</a></p>
+        <br/>
+        <table border="1">
+            <tr>
+                <th>DMX Channel</th>
+                <th>Function</th>
+            </tr>
+            <tr>
+                <td id="dmx0">Loading...</td>
+                <td>Controls Servo 1 Angle, mapped 0-255 → 0-180°</td>
+            </tr>
+            <tr>
+                <td id="dmx1">Loading...</td>
+                <td>Controls Servo 2 Angle, mapped 0-255 → 0-180°</td>
+            </tr>
+            <tr>
+                <td id="dmx2">Loading...</td>
+                <td>Controls Servo 3 Angle, mapped 0-255 → 0-180°</td>
+            </tr>
+            <tr>
+                <td id="dmx3">Loading...</td>
+                <td>Controls Servo 4 Angle, mapped 0-255 → 0-180°</td>
+            </tr>
+            <tr>
+                <td id="dmx4">Loading...</td>
+                <td>Controls Motor A Speed & Direction, 1-127 reverse, 129-255 forward, 0/128: standstill</td>
+            </tr>
+            <tr>
+                <td id="dmx5">Loading...</td>
+                <td>Controls Motor B Speed & Direction, 1-127 reverse, 129-255 forward, 0/128: standstill</td>
+            </tr>
+            <tr>
+                <td id="dmx6">Loading...</td>
+                <td>Sets stepper speed, mapped 0-255 → 1-"Stepper Max Speed"</td>
+            </tr>
+            <tr>
+                <td id="dmx7">Loading...</td>
+                <td>Sets stepper position, mapped 0-255 → 1-"Stepper Scaling Factor"</td>
+            </tr>
+            <tr>
+                <td id="dmx8">Loading...</td>
+                <td>Controls Relay 1, 0-127 off, 128-255 on</td>
+            </tr>
+            <tr>
+                <td id="dmx9">Loading...</td>
+                <td>Controls Relay 2, 0-127 off, 128-255 on</td>
+            </tr>
+        </table>
+
         <form action='/save' method='POST'>
             Stepper Current: <input type='number' id='stepper_current' name='stepper_current'><br>
             Stepper Scaling Factor: <input type='number' id='stepper_scale' name='stepper_scale'><br>
@@ -105,6 +161,8 @@ void WebConfig::begin() {
 
 void WebConfig::handleConfig() {
     String json = "{";
+    json += "\"hwid\":\"" + String(macSuffix) + "\",";
+    json += "\"baseDMX\":" + String(baseDMX) + ","; 
     json += "\"stepper_current\":" + String(getStepperCurrent()) + ",";
     json += "\"stepper_scale\":" + String(getStepperScale()) + ",";
     json += "\"stepper_max_speed\":" + String(getStepperMaxSpeed()) + ",";
@@ -138,7 +196,7 @@ void WebConfig::handleReset() {
 void WebConfig::startWiFi() {
     if (!wifiActive) {
         char ssid[16];
-        snprintf(ssid, sizeof(ssid), "MultiDMX-%s", macSuffix);
+        snprintf(ssid, sizeof(ssid), "MDMX-%s", macSuffix);
         Serial.printf("Starting WiFi AP: %s\n", ssid);
         WiFi.softAP(ssid);
         Serial.println("WiFi AP started. Access at 192.168.4.1");

@@ -36,7 +36,7 @@ The **MultiDMX Web Configuration Interface** allows users to configure stepper m
 ### 1. Powering On & Connecting to Wi-Fi
 1. Power on the ESP32 module.
 2. The ESP32 creates a **Wi-Fi Access Point** named:  
-   **`MultiDMX-XXXX`** (where `XXXX` is the last 4 bytes of the ESP32 MAC address).
+   **`MDMX-XXXXXXXX`** (where `XXXXXXXX` is the last 4 bytes of the ESP32 MAC address).
 3. Connect to this Wi-Fi network
 4. Open a web browser and go to:  
    **`http://192.168.4.1/`**  

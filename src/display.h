@@ -10,7 +10,7 @@
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET    -1
-#define MAC_SUFFIX_LENGTH 4  // Last X bytes of the MAC for SSID
+#define MAC_SUFFIX_LENGTH 8  // Last X bytes of the MAC for SSID in hex format
 
 class Display {
 public:

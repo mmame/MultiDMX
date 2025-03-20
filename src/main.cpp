@@ -46,16 +46,16 @@
 #define PIN_BUTTON     35
 
 // ✅ Centralized DMX Base Addresses
-#define DMX_SERVO_1             (baseDMX)
-#define DMX_SERVO_2             (baseDMX + 1)
-#define DMX_SERVO_3             (baseDMX + 2)
-#define DMX_SERVO_4             (baseDMX + 3)
-#define DMX_MOTOR_A             (baseDMX + 4)
-#define DMX_MOTOR_B             (baseDMX + 5)
-#define DMX_STEPPER_SPEED       (baseDMX + 6)
-#define DMX_STEPPER_POSITION    (baseDMX + 7)
-#define DMX_RELAY_1             (baseDMX + 8)
-#define DMX_RELAY_2             (baseDMX + 9)
+#define DMX_SERVO_1             (webConfig.baseDMX)
+#define DMX_SERVO_2             (webConfig.baseDMX + 1)
+#define DMX_SERVO_3             (webConfig.baseDMX + 2)
+#define DMX_SERVO_4             (webConfig.baseDMX + 3)
+#define DMX_MOTOR_A             (webConfig.baseDMX + 4)
+#define DMX_MOTOR_B             (webConfig.baseDMX + 5)
+#define DMX_STEPPER_SPEED       (webConfig.baseDMX + 6)
+#define DMX_STEPPER_POSITION    (webConfig.baseDMX + 7)
+#define DMX_RELAY_1             (webConfig.baseDMX + 8)
+#define DMX_RELAY_2             (webConfig.baseDMX + 9)
 #define DMX_LAST                DMX_RELAY_2
 
 #define BUTTON_DEBOUNCE_DELAY_MS 100
@@ -71,7 +71,6 @@ dmx_port_t dmxPort = DMX_NUM_1;
 byte data[DMX_PACKET_SIZE];
 bool dmxIsConnected = false;
 unsigned long lastUpdate = millis();
-uint16_t baseDMX = 1;  // Base DMX Address
 volatile bool buttonPressed = false;  // Updated globally in readDIPSwitch()
 unsigned long lastButtonPressTime = 0;  // Track last state change
 
@@ -93,7 +92,6 @@ int32_t stepperTargetPosition = 0;  // Target position
 bool homingActive = false; 
 unsigned long homingStartTime = 0;
 bool homingFailed = false;
-char macSuffix[5];  // 4 chars + null terminator
 WebConfig webConfig;
 
 TaskHandle_t fastTaskHandle = NULL;
@@ -169,18 +167,13 @@ void stepperStartHoming() {
         stepper->setCurrentPosition(0);
         stepper->setSpeedInHz(webConfig.getStepperHomingSpeed());  
         stepper->setAcceleration(webConfig.getStepperHomingAccel());  
-        stepper->moveTo(-webConfig.getStepperHomingStepLimit());  // Move indefinitely in reverse
+        stepper->moveTo(webConfig.isStepperReversed() ? webConfig.getStepperHomingStepLimit() : -webConfig.getStepperHomingStepLimit());  // Move indefinitely in reverse
     } 
 }
 
 void setup() {
     Serial.begin(115200);
     Serial.println("Setup...");
-
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    snprintf(macSuffix, sizeof(macSuffix), "%02X%02X%02X%02X", mac[2], mac[3], mac[4], mac[5]);
-
     oledDisplay.begin();
     webConfig.begin();
 
@@ -212,8 +205,8 @@ void setup() {
     pinMode(PIN_BUTTON, INPUT);
 
     // --- Read DIP Switch ---
-    baseDMX = readDIPSwitch();
-    Serial.printf("Base DMX Address: %d\n", baseDMX);
+    webConfig.baseDMX = readDIPSwitch();
+    Serial.printf("Base DMX Address: %d\n", webConfig.baseDMX);
 
     // --- Configure TMC2209 ---
     pinMode(PIN_TMC2209_STEP, OUTPUT);
@@ -309,7 +302,7 @@ void controlStepper() {
     } 
     else if (!homingActive && newTarget != stepperTargetPosition) {  
         stepperTargetPosition = newTarget;
-        stepper->moveTo(stepperTargetPosition);
+        stepper->moveTo(webConfig.isStepperReversed() ? -stepperTargetPosition : stepperTargetPosition);
         Serial.printf("Moving to position: %d steps speed %d\n", stepperTargetPosition, stepperMaxSpeed);
     }
 }
@@ -370,7 +363,7 @@ void loop() {
     dmx_packet_t packet;
     static int lastServoValues[4] = {-1, -1, -1, -1};
 
-    baseDMX = readDIPSwitch();
+    webConfig.baseDMX = readDIPSwitch();
 
     if (dmx_receive(dmxPort, &packet, DMX_TIMEOUT_TICK)) {
         if (!packet.err) {
@@ -378,8 +371,8 @@ void loop() {
             dmx_read(dmxPort, data, packet.size);
             controlMotor(data[DMX_MOTOR_A], PIN_MOTOR_A_1, PIN_MOTOR_A_2, PWM_CHANNEL_A, 0);
             controlMotor(data[DMX_MOTOR_B], PIN_MOTOR_B_1, PIN_MOTOR_B_2, PWM_CHANNEL_B, 1);
-            digitalWrite(PIN_RELAY_1, data[DMX_RELAY_1] >= 127);
-            digitalWrite(PIN_RELAY_2, data[DMX_RELAY_2] >= 127);
+            digitalWrite(PIN_RELAY_1, data[DMX_RELAY_1] > 127);
+            digitalWrite(PIN_RELAY_2, data[DMX_RELAY_2] > 127);
             controlServo(servo1, data[DMX_SERVO_1], lastServoValues[0], webConfig.getServoMinMicros(1), webConfig.getServoMaxMicros(1), webConfig.isServoReversed(1));
             controlServo(servo2, data[DMX_SERVO_2], lastServoValues[1], webConfig.getServoMinMicros(2), webConfig.getServoMaxMicros(2), webConfig.isServoReversed(2));
             controlServo(servo3, data[DMX_SERVO_3], lastServoValues[2], webConfig.getServoMinMicros(3), webConfig.getServoMaxMicros(3), webConfig.isServoReversed(3));
@@ -398,5 +391,5 @@ void loop() {
 
     webConfig.handleClient();
 
-    oledDisplay.updateDMXInfo(baseDMX, DMX_LAST, dmxIsConnected, webConfig.isWiFiActive(), macSuffix);
+    oledDisplay.updateDMXInfo(webConfig.baseDMX, DMX_LAST, dmxIsConnected, webConfig.isWiFiActive(), webConfig.macSuffix);
 }
