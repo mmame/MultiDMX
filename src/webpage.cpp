@@ -1,5 +1,6 @@
 // webpage.cpp
 #include "webpage.h"
+#include <Update.h>
 
 #define DEFAULT_STEPPER_TMC2209_CURRENT 1000
 #define DEFAULT_STEPPER_SCALE 10000
@@ -135,6 +136,7 @@ const char webpageHTML[] PROGMEM = R"rawliteral(
         <form action='/reset' method='POST'>
             <input type='submit' value='Reset to Defaults' style='background-color: red; color: white;'>
         </form>
+        <br><a href='/update'>OTA Firmware Update</a>        
     </body>
     </html>
     )rawliteral";
@@ -148,7 +150,12 @@ void WebConfig::begin() {
     server.on("/save", std::bind(&WebConfig::handleSave, this));
     server.on("/reset", std::bind(&WebConfig::handleReset, this));
     server.on("/config", std::bind(&WebConfig::handleConfig, this));
-
+    server.on("/update", HTTP_GET, [this]() { handleOTAUploadPage(); });
+    server.on("/update", HTTP_POST, 
+        [this]() { server.send(200, "text/plain", (Update.hasError()) ? "Update Failed" : "Update Success. Rebooting..."); },
+        [this]() { handleOTAUpload(); }
+    );
+    
     // Generate MAC-based SSID suffix
     uint8_t mac[6];
     WiFi.macAddress(mac);
@@ -183,6 +190,37 @@ void WebConfig::handleConfig() {
     json += "}";
 
     server.send(200, "application/json", json);
+}
+
+void WebConfig::handleOTAUploadPage() {
+    String html = "<html><body><h2>OTA Firmware Update</h2>"
+                  "<form method='POST' action='/update' enctype='multipart/form-data'>"
+                  "<input type='file' name='firmware'><br><br>"
+                  "<input type='submit' value='Upload & Update'>"
+                  "</form></body></html>";
+    server.send(200, "text/html", html);
+}
+
+void WebConfig::handleOTAUpload() {
+    HTTPUpload& upload = server.upload();
+
+    if (upload.status == UPLOAD_FILE_START) {
+        Serial.printf("Starting OTA update: %s\n", upload.filename.c_str());
+        if (!Update.begin()) { // start with max available size
+            Update.printError(Serial);
+        }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+            Update.printError(Serial);
+        }
+    } else if (upload.status == UPLOAD_FILE_END) {
+        if (Update.end(true)) {
+            Serial.println("OTA update finished successfully");
+            ESP.restart();
+        } else {
+            Update.printError(Serial);
+        }
+    }
 }
 
 void WebConfig::handleReset() {

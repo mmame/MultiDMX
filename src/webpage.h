@@ -42,6 +42,8 @@ private:
     void handleSave();
     void handleReset();
     void handleConfig();
+    void handleOTAUploadPage();
+    void handleOTAUpload();    
 };
 
 #endif
