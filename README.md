@@ -16,6 +16,8 @@ This project is an **ESP32-based DMX Slave** that controls:
 - **Relay Control** (On/Off)
 - **DIP Switch-Based DMX Address Selection**
 
+![Screenshot](pcb3d.png)
+
 ---
 # MultiDMX Web Configuration Interface
 
