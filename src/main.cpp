@@ -367,17 +367,24 @@ void loop() {
 
     if (dmx_receive(dmxPort, &packet, DMX_TIMEOUT_TICK)) {
         if (!packet.err) {
-            dmxIsConnected = true;
             dmx_read(dmxPort, data, packet.size);
-            controlMotor(data[DMX_MOTOR_A], PIN_MOTOR_A_1, PIN_MOTOR_A_2, PWM_CHANNEL_A, 0);
-            controlMotor(data[DMX_MOTOR_B], PIN_MOTOR_B_1, PIN_MOTOR_B_2, PWM_CHANNEL_B, 1);
-            digitalWrite(PIN_RELAY_1, data[DMX_RELAY_1] > 127);
-            digitalWrite(PIN_RELAY_2, data[DMX_RELAY_2] > 127);
-            controlServo(servo1, data[DMX_SERVO_1], lastServoValues[0], webConfig.getServoMinMicros(1), webConfig.getServoMaxMicros(1), webConfig.isServoReversed(1));
-            controlServo(servo2, data[DMX_SERVO_2], lastServoValues[1], webConfig.getServoMinMicros(2), webConfig.getServoMaxMicros(2), webConfig.isServoReversed(2));
-            controlServo(servo3, data[DMX_SERVO_3], lastServoValues[2], webConfig.getServoMinMicros(3), webConfig.getServoMaxMicros(3), webConfig.isServoReversed(3));
-            controlServo(servo4, data[DMX_SERVO_4], lastServoValues[3], webConfig.getServoMinMicros(4), webConfig.getServoMaxMicros(4), webConfig.isServoReversed(4));
-            controlStepper();
+            if(data[0] == 0x00)
+            {
+                dmxIsConnected = true;
+                controlMotor(data[DMX_MOTOR_A], PIN_MOTOR_A_1, PIN_MOTOR_A_2, PWM_CHANNEL_A, 0);
+                controlMotor(data[DMX_MOTOR_B], PIN_MOTOR_B_1, PIN_MOTOR_B_2, PWM_CHANNEL_B, 1);
+                digitalWrite(PIN_RELAY_1, data[DMX_RELAY_1] > 127);
+                digitalWrite(PIN_RELAY_2, data[DMX_RELAY_2] > 127);
+                controlServo(servo1, data[DMX_SERVO_1], lastServoValues[0], webConfig.getServoMinMicros(1), webConfig.getServoMaxMicros(1), webConfig.isServoReversed(1));
+                controlServo(servo2, data[DMX_SERVO_2], lastServoValues[1], webConfig.getServoMinMicros(2), webConfig.getServoMaxMicros(2), webConfig.isServoReversed(2));
+                controlServo(servo3, data[DMX_SERVO_3], lastServoValues[2], webConfig.getServoMinMicros(3), webConfig.getServoMaxMicros(3), webConfig.isServoReversed(3));
+                controlServo(servo4, data[DMX_SERVO_4], lastServoValues[3], webConfig.getServoMinMicros(4), webConfig.getServoMaxMicros(4), webConfig.isServoReversed(4));
+                controlStepper();
+            }
+            else
+            {
+                dmxIsConnected = false;
+            }
         }
         else
         {

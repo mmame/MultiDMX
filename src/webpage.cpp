@@ -60,6 +60,7 @@ const char webpageHTML[] PROGMEM = R"rawliteral(
     </head>
     <body>
         <h2>MultiDMX Configuration</h2>
+        <p>Compiled on: )rawliteral" __DATE__ " " __TIME__ R"rawliteral(</p>
         <p><strong>Hardware ID:</strong> <span id="hwid">Loading...</span></p>
         <p>For more information, see <a href="https://github.com/mmame/MultiDMX">https://github.com/mmame/MultiDMX</a></p>
         <br/>
