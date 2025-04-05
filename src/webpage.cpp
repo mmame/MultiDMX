@@ -56,6 +56,16 @@ const char webpageHTML[] PROGMEM = R"rawliteral(
                         }
                     });
             });
+            setInterval(() => {
+                fetch("/status")
+                    .then(response => response.json())
+                    .then(status => {
+                        for (let i = 0; i <= 9; i++) {
+                            document.getElementById("dmxval" + i).innerText = status["dmx" + i];
+                            document.getElementById("state" + i).innerText = status["state" + i];
+                        }
+                    });
+            }, 4000);
         </script>
     </head>
     <body>
@@ -67,47 +77,69 @@ const char webpageHTML[] PROGMEM = R"rawliteral(
         <table border="1">
             <tr>
                 <th>DMX Channel</th>
-                <th>Function</th>
+                <th>Functionn</th>
+                <th>Value</th>
+                <th>State</th>
             </tr>
             <tr>
                 <td id="dmx0">Loading...</td>
                 <td>Controls Servo 1 Angle, mapped 0-255 → 0-180°</td>
+                <td id="dmxval0">...</td>
+                <td id="state0">...</td>
             </tr>
             <tr>
                 <td id="dmx1">Loading...</td>
                 <td>Controls Servo 2 Angle, mapped 0-255 → 0-180°</td>
+                <td id="dmxval1">...</td>
+                <td id="state1">...</td>
             </tr>
             <tr>
                 <td id="dmx2">Loading...</td>
                 <td>Controls Servo 3 Angle, mapped 0-255 → 0-180°</td>
+                <td id="dmxval2">...</td>
+                <td id="state2">...</td>
             </tr>
             <tr>
                 <td id="dmx3">Loading...</td>
                 <td>Controls Servo 4 Angle, mapped 0-255 → 0-180°</td>
+                <td id="dmxval3">...</td>
+                <td id="state3">...</td>
             </tr>
             <tr>
                 <td id="dmx4">Loading...</td>
                 <td>Controls Motor A Speed & Direction, 1-127 reverse, 129-255 forward, 0/128: standstill</td>
+                <td id="dmxval4">...</td>
+                <td id="state4">...</td>
             </tr>
             <tr>
                 <td id="dmx5">Loading...</td>
                 <td>Controls Motor B Speed & Direction, 1-127 reverse, 129-255 forward, 0/128: standstill</td>
+                <td id="dmxval5">...</td>
+                <td id="state5">...</td>
             </tr>
             <tr>
                 <td id="dmx6">Loading...</td>
                 <td>Sets stepper speed, mapped 0-255 → 1-"Stepper Max Speed"</td>
+                <td id="dmxval6">...</td>
+                <td id="state6">...</td>
             </tr>
             <tr>
                 <td id="dmx7">Loading...</td>
                 <td>Sets stepper position, mapped 0-255 → 1-"Stepper Scaling Factor"</td>
+                <td id="dmxval7">...</td>
+                <td id="state7">...</td>
             </tr>
             <tr>
                 <td id="dmx8">Loading...</td>
                 <td>Controls Relay 1, 0-127 off, 128-255 on</td>
+                <td id="dmxval8">...</td>
+                <td id="state8">...</td>
             </tr>
             <tr>
                 <td id="dmx9">Loading...</td>
                 <td>Controls Relay 2, 0-127 off, 128-255 on</td>
+                <td id="dmxval9">...</td>
+                <td id="state9">...</td>
             </tr>
         </table>
 
@@ -146,11 +178,15 @@ const char webpageHTML[] PROGMEM = R"rawliteral(
 WebConfig::WebConfig() : server(80) {}
 
 void WebConfig::begin() {
+    for (int i = 0; i < 10; i++) {
+        deviceState[i] = "N/A";
+    }    
     preferences.begin("config", false);  // Open preferences in read/write mode
     server.on("/", std::bind(&WebConfig::handleRoot, this));
     server.on("/save", std::bind(&WebConfig::handleSave, this));
     server.on("/reset", std::bind(&WebConfig::handleReset, this));
     server.on("/config", std::bind(&WebConfig::handleConfig, this));
+    server.on("/status", std::bind(&WebConfig::handleStatus, this));
     server.on("/update", HTTP_GET, [this]() { handleOTAUploadPage(); });
     server.on("/update", HTTP_POST, 
         [this]() { server.send(200, "text/plain", (Update.hasError()) ? "Update Failed" : "Update Success. Rebooting..."); },
@@ -168,6 +204,7 @@ void WebConfig::begin() {
 }
 
 void WebConfig::handleConfig() {
+    touchWiFi();
     String json = "{";
     json += "\"hwid\":\"" + String(macSuffix) + "\",";
     json += "\"baseDMX\":" + String(baseDMX) + ","; 
@@ -193,7 +230,21 @@ void WebConfig::handleConfig() {
     server.send(200, "application/json", json);
 }
 
+void WebConfig::handleStatus() {
+    touchWiFi();
+    String json = "{";
+    for (int i = 0; i <= 9; i++) {
+        json += "\"dmx" + String(i) + "\":" + String(dmxRaw[i]) + ",";
+        json += "\"state" + String(i) + "\":\"" + deviceState[i] + "\"";
+        if (i < 9) json += ",";
+    }
+    json += "}";
+    server.send(200, "application/json", json);
+}
+
+
 void WebConfig::handleOTAUploadPage() {
+    touchWiFi();
     String html = "<html><body><h2>OTA Firmware Update</h2>"
                   "<form method='POST' action='/update' enctype='multipart/form-data'>"
                   "<input type='file' name='firmware'><br><br>"
@@ -203,6 +254,7 @@ void WebConfig::handleOTAUploadPage() {
 }
 
 void WebConfig::handleOTAUpload() {
+    touchWiFi();
     HTTPUpload& upload = server.upload();
 
     if (upload.status == UPLOAD_FILE_START) {
@@ -225,12 +277,23 @@ void WebConfig::handleOTAUpload() {
 }
 
 void WebConfig::handleReset() {
+    touchWiFi();
     preferences.clear();  // Erase all stored settings
-    server.send(200, "text/plain", "Settings reset to defaults. Restarting...");
     Serial.println("Resetting to default settings, restarting ESP32...");
-    delay(1000);
+
+    server.send(200, "text/html",
+        "<html><head><meta charset='UTF-8'><title>Resetting...</title></head>"
+        "<body style='font-family:sans-serif; text-align:center; margin-top:50px;'>"
+        "<h2>🔄 Settings reset to defaults</h2>"
+        "<p>The device will restart shortly...</p>"
+        "<script>setTimeout(() => window.location.href = '/', 5000);</script>"
+        "</body></html>"
+    );
+
+    delay(1500);  // Let the user see the message
     ESP.restart();
 }
+
 
 void WebConfig::startWiFi() {
     if (!wifiActive) {
@@ -274,8 +337,14 @@ void WebConfig::handleClient() {
     }
 }
 
+void WebConfig::touchWiFi() {
+    wifiStopTime = millis() + WIFI_ACTIVE_DURATION_MS;
+    //Serial.println("WiFi timeout extended due to HTTP request");
+}
+
 
 void WebConfig::handleRoot() {
+    touchWiFi();    
     server.sendHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     server.sendHeader("Pragma", "no-cache");
     server.sendHeader("Expires", "-1");
@@ -284,74 +353,94 @@ void WebConfig::handleRoot() {
 
 
 void WebConfig::handleSave() {
+    touchWiFi();    
     bool configChanged = false;
 
-    if (server.hasArg("stepper_current")) {
-        preferences.putInt("stepper_current", server.arg("stepper_current").toInt());
-        configChanged = true;
+    struct StepperIntParam {
+        const char* key;
+        int (WebConfig::*getter)();  // Member function pointer
+    };
+    
+    StepperIntParam stepperIntParams[] = {
+        { "stepper_current", &WebConfig::getStepperCurrent },
+        { "stepper_scale", &WebConfig::getStepperScale },
+        { "stepper_accel", &WebConfig::getStepperAccel },
+        { "stepper_homing_accel", &WebConfig::getStepperHomingAccel },
+        { "stepper_stall", &WebConfig::getStepperStallThreshold },
+        { "stepper_max_speed", &WebConfig::getStepperMaxSpeed },
+        { "stepper_homing_speed", &WebConfig::getStepperHomingSpeed },
+        { "stepper_homing_timeout", &WebConfig::getStepperHomingTimeout },
+        { "stepper_homing_step_limit", &WebConfig::getStepperHomingStepLimit }
+    };
+    
+    for (auto& param : stepperIntParams) {
+        if (server.hasArg(param.key)) {
+            int newVal = server.arg(param.key).toInt();
+            int oldVal = (this->*param.getter)();  // Call member function on this
+            if (newVal != oldVal) {
+                preferences.putInt(param.key, newVal);
+                configChanged = true;
+            }
+        }
     }
-    if (server.hasArg("stepper_scale")) {
-        preferences.putInt("stepper_scale", server.arg("stepper_scale").toInt());
-        configChanged = true;
-    }
-    if (server.hasArg("stepper_accel")) {
-        preferences.putInt("stepper_accel", server.arg("stepper_accel").toInt());
-        configChanged = true;
-    }
-    if (server.hasArg("stepper_homing_accel")) {
-        preferences.putInt("stepper_homing_accel", server.arg("stepper_homing_accel").toInt());
-        configChanged = true;
-    }
-    if (server.hasArg("stepper_stall")) {
-        preferences.putInt("stepper_stall", server.arg("stepper_stall").toInt());
-        configChanged = true;
-    }
-    if (server.hasArg("stepper_max_speed")) {
-        preferences.putInt("stepper_max_speed", server.arg("stepper_max_speed").toInt());
-        configChanged = true;
-    }
-    if (server.hasArg("stepper_homing_speed")) {
-        preferences.putInt("stepper_homing_speed", server.arg("stepper_homing_speed").toInt());
-        configChanged = true;
-    }
-    if (server.hasArg("stepper_homing_timeout")) {
-        preferences.putInt("stepper_homing_timeout", server.arg("stepper_homing_timeout").toInt());
-        configChanged = true;
-    }
-    if (server.hasArg("stepper_homing_step_limit")) {
-        preferences.putInt("stepper_homing_step_limit", server.arg("stepper_homing_step_limit").toInt());
-        configChanged = true;
-    }
+    
+    // Stepper reversed
     if (server.hasArg("stepper_reversed")) {
-        preferences.putBool("stepper_reversed", server.arg("stepper_reversed") == "on");
-        configChanged = true;
+        bool newVal = server.arg("stepper_reversed") == "on";
+        if (newVal != isStepperReversed()) {
+            preferences.putBool("stepper_reversed", newVal);
+            configChanged = true;
+        }
     }
-
+    
+    // Servo values
     for (int i = 1; i <= 4; i++) {
         String minKey = "servo" + String(i) + "_min";
         String maxKey = "servo" + String(i) + "_max";
         String revKey = "servo" + String(i) + "_reversed";
-
+    
         if (server.hasArg(minKey)) {
-            preferences.putInt(minKey.c_str(), server.arg(minKey).toInt());
-            configChanged = true;
+            int newVal = server.arg(minKey).toInt();
+            int oldVal = getServoMinMicros(i);
+            if (newVal != oldVal) {
+                preferences.putInt(minKey.c_str(), newVal);
+                configChanged = true;
+            }
         }
+    
         if (server.hasArg(maxKey)) {
-            preferences.putInt(maxKey.c_str(), server.arg(maxKey).toInt());
-            configChanged = true;
+            int newVal = server.arg(maxKey).toInt();
+            int oldVal = getServoMaxMicros(i);
+            if (newVal != oldVal) {
+                preferences.putInt(maxKey.c_str(), newVal);
+                configChanged = true;
+            }
         }
+    
         if (server.hasArg(revKey)) {
-            preferences.putBool(revKey.c_str(), server.arg(revKey) == "on");
-            configChanged = true;
+            bool newVal = server.arg(revKey) == "on";
+            bool oldVal = isServoReversed(i);
+            if (newVal != oldVal) {
+                preferences.putBool(revKey.c_str(), newVal);
+                configChanged = true;
+            }
         }
     }
-
-    server.send(200, "text/plain", "Settings saved. Restarting...");
-
+   
     if (configChanged) {
+        server.send(200, "text/html",
+            "<html><body><p><strong>Settings saved. Restarting...</strong></p>"
+            "<script>setTimeout(() => window.location.href = '/', 5000);</script>"
+            "</body></html>");
         Serial.println("Configuration changed, restarting ESP32...");
         delay(1000);
         ESP.restart();
+    } else {
+        server.send(200, "text/html",
+            "<html><body><p>No changes detected. Returning to main screen...</p>"
+            "<script>setTimeout(() => window.location.href = '/', 1000);</script>"
+            "</body></html>");
+        Serial.println("No configuration changes detected.");
     }
 }
 

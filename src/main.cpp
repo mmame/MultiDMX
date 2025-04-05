@@ -339,10 +339,14 @@ void controlMotor(int dmxValue, int pin_pwm, int pin_direction, int pwm_channel,
 
         lastSpeed[motorIndex] = speed;
         lastDirection[motorIndex] = direction;
+
+        webConfig.dmxRaw[4 + motorIndex] = dmxValue;
+        webConfig.deviceState[4 + motorIndex] = String(speed) + " (" + (direction ? "Rev" : "Fwd") + ")";
     }
 }
 
-void controlServo(Servo &servo, int dmxValue, int &lastDmxValue, int minMicros, int maxMicros, bool isReversed) {
+void controlServo(Servo &servo, int dmxValue, int &lastDmxValue, int minMicros, int maxMicros, bool isReversed, int index)
+{
     if (dmxValue == lastDmxValue) {
         return; // No change, skip updates
     }
@@ -357,6 +361,9 @@ void controlServo(Servo &servo, int dmxValue, int &lastDmxValue, int minMicros, 
     servo.writeMicroseconds(pulseWidth);
 
     Serial.printf("Servo updated - DMX=%d, Pulse Width=%d, Reversed=%s\n", dmxValue, pulseWidth, isReversed ? "Yes" : "No");
+
+    webConfig.dmxRaw[index] = dmxValue;
+    webConfig.deviceState[index] = String(pulseWidth) + " µs";
 }
 
 void loop() {
@@ -375,10 +382,15 @@ void loop() {
                 controlMotor(data[DMX_MOTOR_B], PIN_MOTOR_B_1, PIN_MOTOR_B_2, PWM_CHANNEL_B, 1);
                 digitalWrite(PIN_RELAY_1, data[DMX_RELAY_1] > 127);
                 digitalWrite(PIN_RELAY_2, data[DMX_RELAY_2] > 127);
-                controlServo(servo1, data[DMX_SERVO_1], lastServoValues[0], webConfig.getServoMinMicros(1), webConfig.getServoMaxMicros(1), webConfig.isServoReversed(1));
-                controlServo(servo2, data[DMX_SERVO_2], lastServoValues[1], webConfig.getServoMinMicros(2), webConfig.getServoMaxMicros(2), webConfig.isServoReversed(2));
-                controlServo(servo3, data[DMX_SERVO_3], lastServoValues[2], webConfig.getServoMinMicros(3), webConfig.getServoMaxMicros(3), webConfig.isServoReversed(3));
-                controlServo(servo4, data[DMX_SERVO_4], lastServoValues[3], webConfig.getServoMinMicros(4), webConfig.getServoMaxMicros(4), webConfig.isServoReversed(4));
+                webConfig.dmxRaw[8] = data[DMX_RELAY_1];
+                webConfig.deviceState[8] = data[DMX_RELAY_1] > 127 ? "ON" : "OFF";
+                webConfig.dmxRaw[9] = data[DMX_RELAY_2];
+                webConfig.deviceState[9] = data[DMX_RELAY_2] > 127 ? "ON" : "OFF";
+                
+                controlServo(servo1, data[DMX_SERVO_1], lastServoValues[0], webConfig.getServoMinMicros(1), webConfig.getServoMaxMicros(1), webConfig.isServoReversed(1), 0);
+                controlServo(servo2, data[DMX_SERVO_2], lastServoValues[1], webConfig.getServoMinMicros(2), webConfig.getServoMaxMicros(2), webConfig.isServoReversed(2), 1);
+                controlServo(servo3, data[DMX_SERVO_3], lastServoValues[2], webConfig.getServoMinMicros(3), webConfig.getServoMaxMicros(3), webConfig.isServoReversed(3), 2);
+                controlServo(servo4, data[DMX_SERVO_4], lastServoValues[3], webConfig.getServoMinMicros(4), webConfig.getServoMaxMicros(4), webConfig.isServoReversed(4), 3);
                 controlStepper();
             }
             else

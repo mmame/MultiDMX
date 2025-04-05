@@ -31,6 +31,8 @@ public:
     bool isServoReversed(int servoIndex);
     char macSuffix[10];
     int baseDMX;
+    uint8_t dmxRaw[10];
+    String deviceState[10];    
 
 private:
     WebServer server;
@@ -38,9 +40,11 @@ private:
     unsigned long wifiStopTime;
     bool wifiActive;
 
+    void touchWiFi();
     void handleRoot();
     void handleSave();
     void handleReset();
+    void handleStatus();
     void handleConfig();
     void handleOTAUploadPage();
     void handleOTAUpload();    
