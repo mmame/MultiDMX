@@ -1,6 +1,7 @@
 // webpage.cpp
 #include "webpage.h"
 #include <Update.h>
+#include "dmxmap.h"
 
 #define DEFAULT_STEPPER_TMC2209_CURRENT 1000
 #define DEFAULT_STEPPER_SCALE 10000
@@ -14,6 +15,18 @@
 #define DEFAULT_SERVO_MICROS_MIN 500
 #define DEFAULT_SERVO_MICROS_MAX 2500
 
+//Default values when no DMX signal is present
+#define DEFAULT_SERVO1_DEFAULT_DMX_VALUE     0
+#define DEFAULT_SERVO2_DEFAULT_DMX_VALUE     0
+#define DEFAULT_SERVO3_DEFAULT_DMX_VALUE     0
+#define DEFAULT_SERVO4_DEFAULT_DMX_VALUE     0
+#define DEFAULT_MOTOR_A_DEFAULT_DMX_VALUE    0 
+#define DEFAULT_MOTOR_B_DEFAULT_DMX_VALUE    0
+#define DEFAULT_STEPPER_SPEED_DEFAULT_DMX_VALUE 0
+#define DEFAULT_STEPPER_POSITION_DEFAULT_DMX_VALUE 0
+#define DEFAULT_RELAY1_DEFAULT_DMX_VALUE     0    
+#define DEFAULT_RELAY2_DEFAULT_DMX_VALUE     0
+
 #define WIFI_INITIAL_ACTIVE_DURATION_MS 60000  // 60 seconds after power-up
 #define WIFI_ACTIVE_DURATION_MS 300000  // 5 minutes
 
@@ -25,6 +38,28 @@ const char webpageHTML[] PROGMEM = R"rawliteral(
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {
+                font-family: sans-serif;
+                margin: 20px;
+            }
+            table {
+                border-collapse: collapse;
+                width: 100%;
+                margin-top: 20px;
+            }
+            th, td {
+                padding: 8px 12px;
+                text-align: left;
+                border: 1px solid #ddd;
+            }
+            input[type="number"], input[type="checkbox"] {
+                margin: 5px;
+            }
+            h2, h3 {
+                margin-top: 30px;
+            }
+        </style>
         <title>MultiDMX Config</title>
         <script>
             document.addEventListener("DOMContentLoaded", function() {
@@ -54,6 +89,10 @@ const char webpageHTML[] PROGMEM = R"rawliteral(
                             document.getElementById("servo" + i + "_max").value = data["servo" + i + "_max"];
                             document.getElementById("servo" + i + "_reversed").checked = data["servo" + i + "_reversed"];
                         }
+
+                        for (let i = 0; i <= 9; i++) {
+                            document.getElementById("dmxdef" + i).value = data["dmxdef" + i];
+                        }
                     });
             });
             setInterval(() => {
@@ -77,7 +116,7 @@ const char webpageHTML[] PROGMEM = R"rawliteral(
         <table border="1">
             <tr>
                 <th>DMX Channel</th>
-                <th>Functionn</th>
+                <th>Function</th>
                 <th>Value</th>
                 <th>State</th>
             </tr>
@@ -154,7 +193,7 @@ const char webpageHTML[] PROGMEM = R"rawliteral(
             Stepper Homing Timeout (ms): <input type='number' id='stepper_homing_timeout' name='stepper_homing_timeout'><br>
             Stepper Homing Step Limit: <input type='number' id='stepper_homing_step_limit' name='stepper_homing_step_limit'><br>
             Stepper Reversed: <input type='checkbox' id='stepper_reversed' name='stepper_reversed'><br><br>
-    
+
             <script>
                 for (let i = 1; i <= 4; i++) {
                     document.write("Servo " + i + " Min Micros: <input type='number' id='servo" + i + "_min' name='servo" + i + "_min'><br>");
@@ -162,7 +201,21 @@ const char webpageHTML[] PROGMEM = R"rawliteral(
                     document.write("Servo " + i + " Reversed: <input type='checkbox' id='servo" + i + "_reversed' name='servo" + i + "_reversed'><br><br>");
                 }
             </script>
-    
+
+            <h3>Default DMX Values (when no DMX signal)</h3>
+            <table>
+                <tr><td>Servo 1 Default:</td><td><input type='number' id='dmxdef0' name='dmxdef0' min='0' max='255'></td></tr>
+                <tr><td>Servo 2 Default:</td><td><input type='number' id='dmxdef1' name='dmxdef1' min='0' max='255'></td></tr>
+                <tr><td>Servo 3 Default:</td><td><input type='number' id='dmxdef2' name='dmxdef2' min='0' max='255'></td></tr>
+                <tr><td>Servo 4 Default:</td><td><input type='number' id='dmxdef3' name='dmxdef3' min='0' max='255'></td></tr>
+                <tr><td>Motor A Speed Default:</td><td><input type='number' id='dmxdef4' name='dmxdef4' min='0' max='255'></td></tr>
+                <tr><td>Motor B Speed Default:</td><td><input type='number' id='dmxdef5' name='dmxdef5' min='0' max='255'></td></tr>
+                <tr><td>Stepper Speed Default:</td><td><input type='number' id='dmxdef6' name='dmxdef6' min='0' max='255'></td></tr>
+                <tr><td>Stepper Position Default:</td><td><input type='number' id='dmxdef7' name='dmxdef7' min='0' max='255'></td></tr>
+                <tr><td>Relay 1 Default:</td><td><input type='number' id='dmxdef8' name='dmxdef8' min='0' max='255'></td></tr>
+                <tr><td>Relay 2 Default:</td><td><input type='number' id='dmxdef9' name='dmxdef9' min='0' max='255'></td></tr>
+            </table>
+
             <br><input type='submit' value='Save Settings'>
         </form><br>
     
@@ -225,6 +278,11 @@ void WebConfig::handleConfig() {
         json += "\"servo" + String(i) + "_reversed\":" + String(isServoReversed(i) ? "true" : "false");
         if (i < 4) json += ",";
     }
+
+    for (int i = 0; i <= 9; i++) {
+        json += ",\"dmxdef" + String(i) + "\":" + String(getDefaultDMXValue(i));
+    }
+        
     json += "}";
 
     server.send(200, "application/json", json);
@@ -427,6 +485,19 @@ void WebConfig::handleSave() {
         }
     }
    
+    // DMX default values
+    for (int i = 0; i <= 9; i++) {
+        String key = "dmxdef" + String(i);
+        if (server.hasArg(key)) {
+            uint8_t newVal = server.arg(key).toInt();
+            uint8_t oldVal = getDefaultDMXValue(i);
+            if (newVal != oldVal) {
+                preferences.putUChar(key.c_str(), newVal);
+                configChanged = true;
+            }
+        }
+    }
+
     if (configChanged) {
         server.send(200, "text/html",
             "<html><body><p><strong>Settings saved. Restarting...</strong></p>"
@@ -497,4 +568,41 @@ bool WebConfig::isStepperReversed() {
 bool WebConfig::isServoReversed(int servoIndex) {
     String key = "servo" + String(servoIndex) + "_reversed";
     return preferences.getBool(key.c_str(), false); // Default: not reversed
+}
+
+uint8_t WebConfig::getDefaultDMXValue(int index) {
+    if (index < 0 || index > 9) return 0; // Safety fallback
+
+    String key = "dmxdef" + String(index);
+
+    switch (index) {
+        case 0: return preferences.getUChar(key.c_str(), DEFAULT_SERVO1_DEFAULT_DMX_VALUE);
+        case 1: return preferences.getUChar(key.c_str(), DEFAULT_SERVO2_DEFAULT_DMX_VALUE);
+        case 2: return preferences.getUChar(key.c_str(), DEFAULT_SERVO3_DEFAULT_DMX_VALUE);
+        case 3: return preferences.getUChar(key.c_str(), DEFAULT_SERVO4_DEFAULT_DMX_VALUE);
+        case 4: return preferences.getUChar(key.c_str(), DEFAULT_MOTOR_A_DEFAULT_DMX_VALUE);
+        case 5: return preferences.getUChar(key.c_str(), DEFAULT_MOTOR_B_DEFAULT_DMX_VALUE);
+        case 6: return preferences.getUChar(key.c_str(), DEFAULT_STEPPER_SPEED_DEFAULT_DMX_VALUE);
+        case 7: return preferences.getUChar(key.c_str(), DEFAULT_STEPPER_POSITION_DEFAULT_DMX_VALUE);
+        case 8: return preferences.getUChar(key.c_str(), DEFAULT_RELAY1_DEFAULT_DMX_VALUE);
+        case 9: return preferences.getUChar(key.c_str(), DEFAULT_RELAY2_DEFAULT_DMX_VALUE);
+        default: return 0;
+    }
+}
+
+const uint8_t* WebConfig::getDefaultDMXValues() {
+    static uint8_t defaultDMX[512] = {0};
+
+    defaultDMX[DMX_SERVO_1(baseDMX)] = getDefaultDMXValue(0);
+    defaultDMX[DMX_SERVO_2(baseDMX)] = getDefaultDMXValue(1);
+    defaultDMX[DMX_SERVO_3(baseDMX)] = getDefaultDMXValue(2);
+    defaultDMX[DMX_SERVO_4(baseDMX)] = getDefaultDMXValue(3);
+    defaultDMX[DMX_MOTOR_A(baseDMX)] = getDefaultDMXValue(4);
+    defaultDMX[DMX_MOTOR_B(baseDMX)] = getDefaultDMXValue(5);
+    defaultDMX[DMX_STEPPER_SPEED(baseDMX)] = getDefaultDMXValue(6);
+    defaultDMX[DMX_STEPPER_POSITION(baseDMX)] = getDefaultDMXValue(7);
+    defaultDMX[DMX_RELAY_1(baseDMX)] = getDefaultDMXValue(8);
+    defaultDMX[DMX_RELAY_2(baseDMX)] = getDefaultDMXValue(9);
+
+    return defaultDMX;
 }

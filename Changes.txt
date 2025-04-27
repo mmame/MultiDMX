@@ -1,0 +1,11 @@
+MultiDMX Firmware Change history
+
+20250405:
+- First public release
+
+20250427:
+- Fixed actual Stepper position and speed in webpage stays 0
+- Add DMX default values to use when DMX is disconnected/lost
+
+
+

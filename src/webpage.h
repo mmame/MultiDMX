@@ -7,8 +7,15 @@
 #include <WebServer.h>
 #include <Preferences.h>
 
+
 class WebConfig {
 public:
+    char macSuffix[10];
+    int baseDMX;
+    uint8_t dmxRaw[10];
+    String deviceState[10];    
+
+
     WebConfig();
     void begin();
     void handleClient();
@@ -29,10 +36,8 @@ public:
     int getServoMaxMicros(int servoIndex);
     bool isStepperReversed();
     bool isServoReversed(int servoIndex);
-    char macSuffix[10];
-    int baseDMX;
-    uint8_t dmxRaw[10];
-    String deviceState[10];    
+    uint8_t getDefaultDMXValue(int index);
+    const uint8_t* getDefaultDMXValues();
 
 private:
     WebServer server;
